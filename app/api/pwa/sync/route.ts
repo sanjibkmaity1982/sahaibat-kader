@@ -2,7 +2,7 @@
 // Receives synced cases from kader PWA and saves to Supabase.
 
 import { NextRequest, NextResponse } from "next/server";
-import { getAdminSupabase } from "../../../../lib/supabaseAdmin";
+import { getAdminSupabase } from "@/lib/supabaseAdmin";
 
 const PWA_SYNC_SECRET = process.env.PWA_SYNC_SECRET ?? "";
 
