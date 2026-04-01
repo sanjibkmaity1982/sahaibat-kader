@@ -26,6 +26,7 @@ const withPWA = require("next-pwa")({
 
 const nextConfig = {
   reactStrictMode: true,
+    transpilePackages: ['@sahaibat/growth-engine'],
 };
 
 module.exports = withPWA(nextConfig);
