@@ -203,7 +203,15 @@ export default function TriagePage() {
     if (!id) { router.replace("/"); return; }
     setIdentity(id);
     setIsOnline(navigator.onLine);
-    window.addEventListener("online", () => setIsOnline(true));
+    window.addEventListener("online", () => {
+      setIsOnline(true);
+      // Auto-sync when connection returns
+      import("@/lib/syncClient").then(({ syncPendingCases }) => {
+        syncPendingCases().then(({ synced }) => {
+          if (synced > 0) getPendingCount().then(setPendingCount);
+        });
+      });
+    });
     window.addEventListener("offline", () => setIsOnline(false));
     getPendingCount().then(setPendingCount);
   }, [router]);
