@@ -91,7 +91,7 @@ export default function LoginPage() {
         </div>
 
         {/* Phone input */}
-        <div style={{ marginBottom: 16 }}>
+<div style={{ marginBottom: 16 }}>
           <label style={{
             display: "block",
             color: "rgba(255,255,255,0.7)",
@@ -100,24 +100,45 @@ export default function LoginPage() {
           }}>
             Nomor WhatsApp kamu
           </label>
-          <input
-            type="tel"
-            placeholder="+62 812 3456 7890"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-            style={{
-              width: "100%",
-              padding: "14px 16px",
-              borderRadius: 10,
-              background: "rgba(255,255,255,0.08)",
-              border: "1.5px solid rgba(2,195,154,0.4)",
-              color: "white",
+          <div style={{ display: "flex", borderRadius: 10, overflow: "hidden", border: "1.5px solid rgba(2,195,154,0.4)" }}>
+            <div style={{
+              padding: "14px 14px",
+              background: "rgba(2,195,154,0.15)",
+              color: "#02C39A",
               fontSize: 16,
-              outline: "none",
-              boxSizing: "border-box",
-            }}
-          />
+              fontWeight: 700,
+              whiteSpace: "nowrap",
+              display: "flex",
+              alignItems: "center",
+              borderRight: "1px solid rgba(2,195,154,0.3)",
+            }}>
+              🇮🇩 +62
+            </div>
+            <input
+              type="tel"
+              placeholder="812 3456 7890"
+              value={phone}
+              onChange={(e) => {
+                // Strip any leading +62 or 0 if Kader types it anyway
+                let val = e.target.value.replace(/^\+62/, "").replace(/^0/, "");
+                setPhone(val);
+              }}
+              onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+              style={{
+                flex: 1,
+                padding: "14px 16px",
+                background: "rgba(255,255,255,0.08)",
+                border: "none",
+                color: "white",
+                fontSize: 16,
+                outline: "none",
+                minWidth: 0,
+              }}
+            />
+          </div>
+          <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 12, marginTop: 6 }}>
+            Contoh: 812 3456 7890
+          </p>
         </div>
 
         {/* Error */}
