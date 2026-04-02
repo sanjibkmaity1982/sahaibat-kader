@@ -114,13 +114,31 @@ export default function TriagePage() {
         {view === "home" && (
           <div style={{ padding: "32px 20px" }}>
 
-            <div style={{ textAlign: "center", marginBottom: 32 }}>
-              <div style={{ fontSize: 40, marginBottom: 8 }}>🌿</div>
-              <h1 style={{ color: C.teal, fontSize: 22, fontWeight: 800, margin: 0 }}>
-                Selamat datang
+           <div style={{ textAlign: "center", marginBottom: 32 }}>
+              <div style={{
+                width: 72, height: 72,
+                borderRadius: 20,
+                background: "linear-gradient(135deg, rgba(2,195,154,0.15), rgba(2,195,154,0.25))",
+                border: "1px solid rgba(2,195,154,0.3)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                margin: "0 auto 16px",
+                boxShadow: "0 0 24px rgba(2,195,154,0.15)",
+                overflow: "hidden",
+              }}>
+                <img
+                  src="https://app.sahaibat.com/brand/sahaibat-icon.png"
+                  alt="SahAIbat"
+                  style={{ width: 52, height: 52, objectFit: "contain" }}
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = "none";
+                  }}
+                />
+              </div>
+              <h1 style={{ color: C.white, fontSize: 22, fontWeight: 800, margin: 0 }}>
+                Selamat datang, <span style={{ color: C.teal }}>{identity.name}</span>
               </h1>
-              <p style={{ color: C.dim, fontSize: 14, marginTop: 6 }}>
-                {identity.name} — Pilih modul triase
+              <p style={{ color: C.dim, fontSize: 13, marginTop: 6 }}>
+                Pilih modul triase di bawah ini
               </p>
             </div>
 
