@@ -316,28 +316,70 @@ export default function ChildTriagePage() {
           </QCard>
         )}
 
-        {step === "age_dob" && (
-          <QCard question="Tanggal lahir anak?" hint="Pilih dari kalender — usia akan dihitung otomatis">
-            <input
-              type="date"
-              value={input}
-              max={new Date().toISOString().split('T')[0]}
-              onChange={e => setInput(e.target.value)}
-              autoFocus
-              style={{
-                width: "100%", padding: "14px 16px", borderRadius: 10,
-                background: "rgba(255,255,255,0.08)", border: `1.5px solid ${C.border}`,
-                color: C.white, fontSize: 18, outline: "none",
-                boxSizing: "border-box", marginBottom: 16,
-                colorScheme: "dark",
-              }}
-            />
-            {input && (
+{step === "age_dob" && (
+          <QCard question="Tanggal lahir anak?" hint="Format: Hari / Bulan / Tahun">
+            <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+              {/* Day */}
+              <div style={{ flex: 1 }}>
+                <div style={{ color: C.dim, fontSize: 11, marginBottom: 4, textAlign: "center" }}>Tanggal</div>
+                <select
+                  value={input.split("-")[2] || ""}
+                  onChange={e => {
+                    const parts = input.split("-");
+                    setInput(`${parts[0] || ""}${parts[0] ? "-" : ""}${parts[1] || ""}${parts[1] ? "-" : ""}${e.target.value}`);
+                  }}
+                  style={{ width: "100%", padding: "12px 8px", borderRadius: 10, background: "rgba(255,255,255,0.08)", border: `1.5px solid ${C.border}`, color: C.white, fontSize: 16, outline: "none" }}
+                >
+                  <option value="">--</option>
+                  {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
+                    <option key={d} value={String(d).padStart(2, "0")} style={{ background: "#0D1F1C" }}>{d}</option>
+                  ))}
+                </select>
+              </div>
+              {/* Month */}
+              <div style={{ flex: 2 }}>
+                <div style={{ color: C.dim, fontSize: 11, marginBottom: 4, textAlign: "center" }}>Bulan</div>
+                <select
+                  value={input.split("-")[1] || ""}
+                  onChange={e => {
+                    const parts = input.split("-");
+                    setInput(`${parts[0] || ""}${parts[0] ? "-" : ""}${e.target.value}-${parts[2] || ""}`);
+                  }}
+                  style={{ width: "100%", padding: "12px 8px", borderRadius: 10, background: "rgba(255,255,255,0.08)", border: `1.5px solid ${C.border}`, color: C.white, fontSize: 16, outline: "none" }}
+                >
+                  <option value="">--</option>
+                  {["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"].map((m, i) => (
+                    <option key={i} value={String(i + 1).padStart(2, "0")} style={{ background: "#0D1F1C" }}>{m}</option>
+                  ))}
+                </select>
+              </div>
+              {/* Year */}
+              <div style={{ flex: 2 }}>
+                <div style={{ color: C.dim, fontSize: 11, marginBottom: 4, textAlign: "center" }}>Tahun</div>
+                <select
+                  value={input.split("-")[0] || ""}
+                  onChange={e => {
+                    const parts = input.split("-");
+                    setInput(`${e.target.value}-${parts[1] || ""}-${parts[2] || ""}`);
+                  }}
+                  style={{ width: "100%", padding: "12px 8px", borderRadius: 10, background: "rgba(255,255,255,0.08)", border: `1.5px solid ${C.border}`, color: C.white, fontSize: 16, outline: "none" }}
+                >
+                  <option value="">----</option>
+                  {Array.from({ length: 6 }, (_, i) => new Date().getFullYear() - i).map(y => (
+                    <option key={y} value={String(y)} style={{ background: "#0D1F1C" }}>{y}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            {input.match(/^\d{4}-\d{2}-\d{2}$/) && (
               <div style={{ color: C.teal, fontSize: 14, marginBottom: 12, textAlign: "center" }}>
                 ✓ Usia: {dobToMonths(input)} bulan
               </div>
             )}
-            <button onClick={submitDob} style={{ width: "100%", padding: 14, borderRadius: 10, background: input ? C.teal : "rgba(2,195,154,0.3)", color: C.white, fontSize: 16, fontWeight: 700, border: "none", cursor: input ? "pointer" : "not-allowed" }}>
+            <button
+              onClick={submitDob}
+              style={{ width: "100%", padding: 14, borderRadius: 10, background: input.match(/^\d{4}-\d{2}-\d{2}$/) ? C.teal : "rgba(2,195,154,0.3)", color: C.white, fontSize: 16, fontWeight: 700, border: "none", cursor: "pointer" }}
+            >
               Lanjut →
             </button>
             <button onClick={() => setStep("age_method")} style={{ width: "100%", padding: 12, borderRadius: 10, background: "none", color: C.dim, fontSize: 14, border: "none", cursor: "pointer", marginTop: 8 }}>
@@ -346,7 +388,6 @@ export default function ChildTriagePage() {
             {error && <Err msg={error} />}
           </QCard>
         )}
-
         {step === "age_months" && (
           <QCard question="Usia anak (bulan)?" hint="Masukkan total usia dalam bulan. Contoh: 18">
             <TInput placeholder="Contoh: 18" value={input} onChange={setInput} onSubmit={submitAgeMonths} type="number" />
