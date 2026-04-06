@@ -13,11 +13,12 @@ import {
 } from "@/lib/offlineStore";
 
 type Step =
-  | "home" | "child_name" | "age" | "gender"
+  | "home" | "child_name" | "nik" | "age" | "gender"
   | "weight" | "height" | "muac" | "feeding" | "milestone" | "result";
 
 interface TriageState {
   childName: string;
+  nik: string;
   ageMonths: number | null;
   gender: "male" | "female" | null;
   weightKg: number | null;
@@ -28,7 +29,7 @@ interface TriageState {
 }
 
 const emptyState: TriageState = {
-  childName: "", ageMonths: null, gender: null,
+  childName: "", nik: "", ageMonths: null, gender: null,
   weightKg: null, heightCm: null, muacCm: null,
   feedingFreq: null, milestoneScore: null,
 };
@@ -92,7 +93,14 @@ export default function ChildTriagePage() {
 
   function submitName() {
     if (!input.trim()) { setError("Masukkan nama anak."); return; }
-    next({ childName: input.trim() }, "age");
+    next({ childName: input.trim() }, "nik");
+  }
+
+  function submitNik() {
+    const val = input.trim().replace(/\s/g, "");
+    if (!val) { setError("NIK wajib diisi. Tidak boleh dilewati."); return; }
+    if (!/^\d{16}$/.test(val)) { setError("NIK harus 16 digit angka."); return; }
+    next({ nik: val }, "age");
   }
 
   function submitAge() {
@@ -142,12 +150,13 @@ export default function ChildTriagePage() {
       chwName: identity?.name,
     });
 
-    const queued: QueuedCase = {
+const queued: QueuedCase = {
       localId: generateLocalId(),
       profileId: identity?.profileId ?? "",
       ngoId: identity?.ngoId ?? "",
       moduleType: 'child',
       patientName: t.childName,
+      nik: t.nik,
       ageMonths: t.ageMonths,
       ageDays: null,
       gender: t.gender,
@@ -219,6 +228,14 @@ export default function ChildTriagePage() {
         {step === "child_name" && (
           <QCard question="Nama anak?">
             <TInput placeholder="Contoh: Ahmad Fauzi" value={input} onChange={setInput} onSubmit={submitName} />
+            {error && <Err msg={error} />}
+          </QCard>
+        )}
+
+        {step === "nik" && (
+          <QCard question="NIK anak?" hint="Nomor Induk Kependudukan — 16 digit dari KTP/KIA. Wajib diisi untuk mencegah data ganda.">
+            <TInput placeholder="Contoh: 5271010203040001" value={input} onChange={setInput} onSubmit={submitNik} type="number" />
+            <p style={{ color: C.yellow, fontSize: 12, marginTop: 4 }}>⚠️ NIK wajib diisi — tidak dapat dilewati</p>
             {error && <Err msg={error} />}
           </QCard>
         )}
