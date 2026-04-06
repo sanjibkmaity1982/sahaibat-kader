@@ -1,16 +1,16 @@
 "use client";
 
 // app/triage/child/page.tsx
-// Moved from app/triage/page.tsx — child growth triage module.
-// Updated to use new QueuedCase shape (moduleType, patientName, ageDays).
+// Production version — NIK mandatory, WHO flags stored, auto-sync on complete.
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { getIdentity } from "@/lib/auth";
 import { runGrowthTriage } from "@/lib/offlineEngine";
 import {
-  saveCase, getAllCases, getPendingCount, generateLocalId, type QueuedCase,
+  saveCase, getPendingCount, generateLocalId, type QueuedCase,
 } from "@/lib/offlineStore";
+import { syncPendingCases } from "@/lib/syncClient";
 
 type Step =
   | "home" | "child_name" | "nik" | "age" | "gender"
@@ -70,16 +70,21 @@ export default function ChildTriagePage() {
     if (!id) { router.replace("/"); return; }
     setIdentity(id);
     setIsOnline(navigator.onLine);
-    window.addEventListener("online", () => {
+
+    const handleOnline = () => {
       setIsOnline(true);
-      import("@/lib/syncClient").then(({ syncPendingCases }) => {
-        syncPendingCases().then(({ synced }) => {
-          if (synced > 0) getPendingCount().then(setPendingCount);
-        });
+      syncPendingCases().then(({ synced }) => {
+        if (synced > 0) getPendingCount().then(setPendingCount);
       });
-    });
+    };
+    window.addEventListener("online", handleOnline);
     window.addEventListener("offline", () => setIsOnline(false));
     getPendingCount().then(setPendingCount);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", () => setIsOnline(false));
+    };
   }, [router]);
 
   function startTriage() {
@@ -99,7 +104,7 @@ export default function ChildTriagePage() {
   function submitNik() {
     const val = input.trim().replace(/\s/g, "");
     if (!val) { setError("NIK wajib diisi. Tidak boleh dilewati."); return; }
-    if (!/^\d{16}$/.test(val)) { setError("NIK harus 16 digit angka."); return; }
+    if (!/^\d{16}$/.test(val)) { setError("NIK harus 16 digit angka. Contoh: 5271010203040001"); return; }
     next({ nik: val }, "age");
   }
 
@@ -150,11 +155,11 @@ export default function ChildTriagePage() {
       chwName: identity?.name,
     });
 
-const queued: QueuedCase = {
+    const queued: QueuedCase = {
       localId: generateLocalId(),
       profileId: identity?.profileId ?? "",
       ngoId: identity?.ngoId ?? "",
-      moduleType: 'child',
+      moduleType: "child",
       patientName: t.childName,
       nik: t.nik,
       ageMonths: t.ageMonths,
@@ -163,13 +168,13 @@ const queued: QueuedCase = {
       weightKg: t.weightKg,
       heightCm: t.heightCm,
       muacCm: t.muacCm,
-      feedingFreq: t.feedingFreq,
-      milestoneScore,
-      riskLevel: engineResult.riskLevel,
       waz: engineResult.waz,
       laz: engineResult.laz,
       wlz: engineResult.wlz,
       muacCat: engineResult.muacCat,
+      feedingFreq: t.feedingFreq,
+      milestoneScore,
+      riskLevel: engineResult.riskLevel,
       reportText: engineResult.reportText,
       referNow: engineResult.referNow,
       followUpDays: engineResult.followUpDays,
@@ -178,9 +183,17 @@ const queued: QueuedCase = {
     };
 
     await saveCase(queued);
-    setPendingCount(await getPendingCount());
+    const newPending = await getPendingCount();
+    setPendingCount(newPending);
     setResult(queued);
     setStep("result");
+
+    // Attempt immediate sync if online
+    if (navigator.onLine) {
+      syncPendingCases().then(({ synced }) => {
+        if (synced > 0) getPendingCount().then(setPendingCount);
+      });
+    }
   }
 
   if (!identity) return null;
@@ -304,9 +317,15 @@ const queued: QueuedCase = {
             <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, marginBottom: 20 }}>
               <pre style={{ color: C.white, fontSize: 13, lineHeight: 1.7, whiteSpace: "pre-wrap", margin: 0, fontFamily: "inherit" }}>{result.reportText}</pre>
             </div>
-            <div style={{ background: "rgba(255,209,102,0.1)", border: `1px solid ${C.yellow}`, borderRadius: 10, padding: 12, marginBottom: 20, fontSize: 13, color: C.yellow }}>
-              ⏳ Tersimpan lokal — akan sinkron ke server saat ada sinyal
-            </div>
+            {pendingCount > 0 ? (
+              <div style={{ background: "rgba(255,209,102,0.1)", border: `1px solid ${C.yellow}`, borderRadius: 10, padding: 12, marginBottom: 20, fontSize: 13, color: C.yellow }}>
+                ⏳ Tersimpan lokal — akan sinkron ke server saat ada sinyal
+              </div>
+            ) : (
+              <div style={{ background: "rgba(2,195,154,0.1)", border: `1px solid ${C.teal}`, borderRadius: 10, padding: 12, marginBottom: 20, fontSize: 13, color: C.teal }}>
+                ✅ Data berhasil disinkron ke server
+              </div>
+            )}
             <button onClick={startTriage} style={{ width: "100%", padding: 16, borderRadius: 12, background: C.teal, color: C.white, fontSize: 16, fontWeight: 700, border: "none", cursor: "pointer", marginBottom: 12 }}>
               ➕ Triage Anak Berikutnya
             </button>
