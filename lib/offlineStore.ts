@@ -12,6 +12,7 @@ export interface QueuedCase {
 
   // Universal patient fields
   patientName: string;
+  nik?: string;                // NIK 16 digit — wajib untuk child module
   ageMonths: number | null;    // null for maternal/postpartum
   ageDays: number | null;      // for neonatal (0-28 days)
   gender: 'male' | 'female' | 'unknown';
@@ -19,6 +20,10 @@ export interface QueuedCase {
   // Child growth fields (moduleType === 'child')
   weightKg?: number | null;
   heightCm?: number | null;
+  waz?: string;                // WHO weight-for-age
+  laz?: string;                // WHO length-for-age
+  wlz?: string;                // WHO weight-for-length
+  muacCat?: 'sam' | 'mam' | 'normal';  // MUAC classification
   muacCm?: number | null;
   feedingFreq?: '1' | '2' | '3' | null;
   milestoneScore?: '1' | '2' | '3' | null;
