@@ -1,7 +1,7 @@
 "use client";
 
 // app/triage/child/page.tsx
-// Production version — NIK mandatory, WHO flags stored, auto-sync on complete.
+// Production v3 — NIK mandatory, DOB/age flexible input, WHO flags, auto-sync
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
@@ -13,13 +13,15 @@ import {
 import { syncPendingCases } from "@/lib/syncClient";
 
 type Step =
-  | "home" | "child_name" | "nik" | "age" | "gender"
-  | "weight" | "height" | "muac" | "feeding" | "milestone" | "result";
+  | "home" | "child_name" | "nik" | "age_method" | "age_dob" | "age_months" | "age_years"
+  | "gender" | "weight" | "height" | "muac" | "feeding" | "milestone" | "result";
 
 interface TriageState {
   childName: string;
   nik: string;
+  dob: string | null;          // ISO YYYY-MM-DD
   ageMonths: number | null;
+  ageSource: string;           // 'dob_exact' | 'manual_months' | 'manual_years'
   gender: "male" | "female" | null;
   weightKg: number | null;
   heightCm: number | null;
@@ -29,7 +31,8 @@ interface TriageState {
 }
 
 const emptyState: TriageState = {
-  childName: "", nik: "", ageMonths: null, gender: null,
+  childName: "", nik: "", dob: null, ageMonths: null,
+  ageSource: "manual_months", gender: null,
   weightKg: null, heightCm: null, muacCm: null,
   feedingFreq: null, milestoneScore: null,
 };
@@ -41,6 +44,14 @@ const C = {
   dimmer: "rgba(255,255,255,0.25)", red: "#FF6B6B",
   yellow: "#FFD166", green: "#02C39A",
 };
+
+function dobToMonths(dob: string): number {
+  const birth = new Date(dob);
+  const now = new Date();
+  const months = (now.getFullYear() - birth.getFullYear()) * 12 +
+    (now.getMonth() - birth.getMonth());
+  return Math.max(0, Math.min(60, months));
+}
 
 function riskColor(level: string) {
   if (level === "HIGH") return C.red;
@@ -60,9 +71,11 @@ export default function ChildTriagePage() {
   const [step, setStep] = useState<Step>("home");
   const [triage, setTriage] = useState<TriageState>(emptyState);
   const [input, setInput] = useState("");
+  const [inputB, setInputB] = useState(""); // second input for years+months
   const [error, setError] = useState("");
   const [result, setResult] = useState<QueuedCase | null>(null);
   const [pendingCount, setPendingCount] = useState(0);
+  const [synced, setSynced] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
 
   useEffect(() => {
@@ -70,17 +83,15 @@ export default function ChildTriagePage() {
     if (!id) { router.replace("/"); return; }
     setIdentity(id);
     setIsOnline(navigator.onLine);
-
     const handleOnline = () => {
       setIsOnline(true);
-      syncPendingCases().then(({ synced }) => {
-        if (synced > 0) getPendingCount().then(setPendingCount);
+      syncPendingCases().then(({ synced: s }) => {
+        if (s > 0) getPendingCount().then(setPendingCount);
       });
     };
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", () => setIsOnline(false));
     getPendingCount().then(setPendingCount);
-
     return () => {
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", () => setIsOnline(false));
@@ -88,12 +99,13 @@ export default function ChildTriagePage() {
   }, [router]);
 
   function startTriage() {
-    setTriage(emptyState); setInput(""); setError(""); setStep("child_name");
+    setTriage(emptyState); setInput(""); setInputB("");
+    setError(""); setSynced(false); setStep("child_name");
   }
 
   function next(updates: Partial<TriageState>, nextStep: Step) {
     setTriage(prev => ({ ...prev, ...updates }));
-    setInput(""); setError(""); setStep(nextStep);
+    setInput(""); setInputB(""); setError(""); setStep(nextStep);
   }
 
   function submitName() {
@@ -104,26 +116,44 @@ export default function ChildTriagePage() {
   function submitNik() {
     const val = input.trim().replace(/\s/g, "");
     if (!val) { setError("NIK wajib diisi. Tidak boleh dilewati."); return; }
-    if (!/^\d{16}$/.test(val)) { setError("NIK harus 16 digit angka. Contoh: 5271010203040001"); return; }
-    next({ nik: val }, "age");
+    if (!/^\d{16}$/.test(val)) { setError("NIK harus 16 digit angka."); return; }
+    next({ nik: val }, "age_method");
   }
 
-  function submitAge() {
+  function submitDob() {
+    if (!input) { setError("Pilih tanggal lahir."); return; }
+    const dob = input; // YYYY-MM-DD from date input
+    const birth = new Date(dob);
+    const now = new Date();
+    if (birth > now) { setError("Tanggal lahir tidak boleh di masa depan."); return; }
+    const months = dobToMonths(dob);
+    if (months > 60) { setError("Anak sudah lebih dari 60 bulan — di luar rentang Posyandu."); return; }
+    next({ dob, ageMonths: months, ageSource: "dob_exact" }, "gender");
+  }
+
+  function submitAgeMonths() {
     const val = parseInt(input.trim());
     if (isNaN(val) || val < 0 || val > 60) { setError("Masukkan usia dalam bulan (0–60)."); return; }
-    next({ ageMonths: val }, "gender");
+    next({ ageMonths: val, ageSource: "manual_months", dob: null }, "gender");
+  }
+
+  function submitAgeYears() {
+    const years = parseInt(input.trim() || "0");
+    const months = parseInt(inputB.trim() || "0");
+    if (isNaN(years) || isNaN(months)) { setError("Masukkan angka yang valid."); return; }
+    const total = years * 12 + months;
+    if (total < 0 || total > 60) { setError("Total usia harus 0–60 bulan."); return; }
+    next({ ageMonths: total, ageSource: "manual_years", dob: null }, "gender");
   }
 
   function submitWeight() {
-    const raw = input.trim().replace(",", ".");
-    const val = parseFloat(raw);
+    const val = parseFloat(input.trim().replace(",", "."));
     if (isNaN(val) || val < 1 || val > 30) { setError("Masukkan berat badan yang valid (kg). Contoh: 8.5"); return; }
     next({ weightKg: val }, "height");
   }
 
   function submitHeight() {
-    const raw = input.trim().replace(",", ".");
-    const val = parseFloat(raw);
+    const val = parseFloat(input.trim().replace(",", "."));
     if (isNaN(val) || val < 40 || val > 130) { setError("Masukkan tinggi badan yang valid (cm). Contoh: 72.5"); return; }
     next({ heightCm: val }, "muac");
   }
@@ -132,16 +162,14 @@ export default function ChildTriagePage() {
     if (input.trim().toLowerCase() === "skip" || input.trim() === "") {
       next({ muacCm: null }, "feeding"); return;
     }
-    const raw = input.trim().replace(",", ".");
-    const val = parseFloat(raw);
+    const val = parseFloat(input.trim().replace(",", "."));
     if (isNaN(val) || val < 6 || val > 25) { setError("Masukkan LILA yang valid (cm) atau ketik SKIP."); return; }
     next({ muacCm: val }, "feeding");
   }
 
   async function finishTriage(milestoneScore: "1" | "2" | "3") {
     const t = { ...triage, milestoneScore };
-    if (!t.ageMonths && t.ageMonths !== 0) return;
-    if (!t.gender || !t.weightKg || !t.heightCm || !t.feedingFreq) return;
+    if (t.ageMonths === null || !t.gender || !t.weightKg || !t.heightCm || !t.feedingFreq) return;
 
     const engineResult = runGrowthTriage({
       weightKg: t.weightKg,
@@ -162,6 +190,7 @@ export default function ChildTriagePage() {
       moduleType: "child",
       patientName: t.childName,
       nik: t.nik,
+      dob: t.dob,
       ageMonths: t.ageMonths,
       ageDays: null,
       gender: t.gender,
@@ -186,17 +215,27 @@ export default function ChildTriagePage() {
     const newPending = await getPendingCount();
     setPendingCount(newPending);
     setResult(queued);
+    setSynced(false);
     setStep("result");
 
     // Attempt immediate sync if online
     if (navigator.onLine) {
-      syncPendingCases().then(({ synced }) => {
-        if (synced > 0) getPendingCount().then(setPendingCount);
+      syncPendingCases().then(({ synced: s }) => {
+        if (s > 0) {
+          getPendingCount().then(setPendingCount);
+          setSynced(true);
+        }
       });
     }
   }
 
   if (!identity) return null;
+
+  const ageDisplay = triage.ageMonths !== null
+    ? triage.ageMonths < 12
+      ? `${triage.ageMonths} bulan`
+      : `${Math.floor(triage.ageMonths / 12)} thn ${triage.ageMonths % 12 > 0 ? triage.ageMonths % 12 + ' bln' : ''}`
+    : '';
 
   return (
     <div style={{ minHeight: "100vh", background: C.bg, display: "flex", flexDirection: "column" }}>
@@ -257,15 +296,104 @@ export default function ChildTriagePage() {
           </QCard>
         )}
 
-        {step === "age" && (
-          <QCard question="Usia anak (bulan)?" hint="Masukkan usia dalam bulan. Contoh: 18 untuk 1,5 tahun">
-            <TInput placeholder="Contoh: 18" value={input} onChange={setInput} onSubmit={submitAge} type="number" />
+        {step === "age_method" && (
+          <QCard question="Bagaimana cara memasukkan usia anak?" hint="Pilih metode yang tersedia">
+            <CBtn
+              label="📅 Tanggal Lahir"
+              sub="Hitung otomatis dari tanggal lahir — paling akurat"
+              onClick={() => setStep("age_dob")}
+            />
+            <CBtn
+              label="🔢 Usia dalam Bulan"
+              sub="Contoh: 18 bulan"
+              onClick={() => setStep("age_months")}
+            />
+            <CBtn
+              label="📆 Tahun & Bulan"
+              sub="Contoh: 1 tahun 6 bulan"
+              onClick={() => setStep("age_years")}
+            />
+          </QCard>
+        )}
+
+        {step === "age_dob" && (
+          <QCard question="Tanggal lahir anak?" hint="Pilih dari kalender — usia akan dihitung otomatis">
+            <input
+              type="date"
+              value={input}
+              max={new Date().toISOString().split('T')[0]}
+              onChange={e => setInput(e.target.value)}
+              autoFocus
+              style={{
+                width: "100%", padding: "14px 16px", borderRadius: 10,
+                background: "rgba(255,255,255,0.08)", border: `1.5px solid ${C.border}`,
+                color: C.white, fontSize: 18, outline: "none",
+                boxSizing: "border-box", marginBottom: 16,
+                colorScheme: "dark",
+              }}
+            />
+            {input && (
+              <div style={{ color: C.teal, fontSize: 14, marginBottom: 12, textAlign: "center" }}>
+                ✓ Usia: {dobToMonths(input)} bulan
+              </div>
+            )}
+            <button onClick={submitDob} style={{ width: "100%", padding: 14, borderRadius: 10, background: input ? C.teal : "rgba(2,195,154,0.3)", color: C.white, fontSize: 16, fontWeight: 700, border: "none", cursor: input ? "pointer" : "not-allowed" }}>
+              Lanjut →
+            </button>
+            <button onClick={() => setStep("age_method")} style={{ width: "100%", padding: 12, borderRadius: 10, background: "none", color: C.dim, fontSize: 14, border: "none", cursor: "pointer", marginTop: 8 }}>
+              ← Pilih metode lain
+            </button>
+            {error && <Err msg={error} />}
+          </QCard>
+        )}
+
+        {step === "age_months" && (
+          <QCard question="Usia anak (bulan)?" hint="Masukkan total usia dalam bulan. Contoh: 18">
+            <TInput placeholder="Contoh: 18" value={input} onChange={setInput} onSubmit={submitAgeMonths} type="number" />
+            <button onClick={() => setStep("age_method")} style={{ width: "100%", padding: 12, borderRadius: 10, background: "none", color: C.dim, fontSize: 14, border: "none", cursor: "pointer", marginTop: 4 }}>
+              ← Pilih metode lain
+            </button>
+            {error && <Err msg={error} />}
+          </QCard>
+        )}
+
+        {step === "age_years" && (
+          <QCard question="Usia anak (tahun & bulan)?" hint="Contoh: 1 tahun 6 bulan">
+            <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ color: C.dim, fontSize: 12, marginBottom: 6 }}>Tahun</div>
+                <input
+                  type="number" placeholder="0–5" value={input}
+                  onChange={e => setInput(e.target.value)} min={0} max={5}
+                  style={{ width: "100%", padding: "14px 12px", borderRadius: 10, background: "rgba(255,255,255,0.08)", border: `1.5px solid ${C.border}`, color: C.white, fontSize: 18, outline: "none", boxSizing: "border-box" }}
+                />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ color: C.dim, fontSize: 12, marginBottom: 6 }}>Bulan</div>
+                <input
+                  type="number" placeholder="0–11" value={inputB}
+                  onChange={e => setInputB(e.target.value)} min={0} max={11}
+                  style={{ width: "100%", padding: "14px 12px", borderRadius: 10, background: "rgba(255,255,255,0.08)", border: `1.5px solid ${C.border}`, color: C.white, fontSize: 18, outline: "none", boxSizing: "border-box" }}
+                />
+              </div>
+            </div>
+            {(input || inputB) && (
+              <div style={{ color: C.teal, fontSize: 14, marginBottom: 12, textAlign: "center" }}>
+                ✓ Total: {(parseInt(input || "0") * 12) + parseInt(inputB || "0")} bulan
+              </div>
+            )}
+            <button onClick={submitAgeYears} style={{ width: "100%", padding: 14, borderRadius: 10, background: C.teal, color: C.white, fontSize: 16, fontWeight: 700, border: "none", cursor: "pointer" }}>
+              Lanjut →
+            </button>
+            <button onClick={() => setStep("age_method")} style={{ width: "100%", padding: 12, borderRadius: 10, background: "none", color: C.dim, fontSize: 14, border: "none", cursor: "pointer", marginTop: 8 }}>
+              ← Pilih metode lain
+            </button>
             {error && <Err msg={error} />}
           </QCard>
         )}
 
         {step === "gender" && (
-          <QCard question="Jenis kelamin anak?">
+          <QCard question="Jenis kelamin anak?" hint={ageDisplay ? `Usia: ${ageDisplay}` : undefined}>
             <CBtn label="👦 Laki-laki" onClick={() => next({ gender: "male" }, "weight")} />
             <CBtn label="👧 Perempuan" onClick={() => next({ gender: "female" }, "weight")} />
           </QCard>
@@ -317,13 +445,13 @@ export default function ChildTriagePage() {
             <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, marginBottom: 20 }}>
               <pre style={{ color: C.white, fontSize: 13, lineHeight: 1.7, whiteSpace: "pre-wrap", margin: 0, fontFamily: "inherit" }}>{result.reportText}</pre>
             </div>
-            {pendingCount > 0 ? (
-              <div style={{ background: "rgba(255,209,102,0.1)", border: `1px solid ${C.yellow}`, borderRadius: 10, padding: 12, marginBottom: 20, fontSize: 13, color: C.yellow }}>
-                ⏳ Tersimpan lokal — akan sinkron ke server saat ada sinyal
-              </div>
-            ) : (
+            {synced ? (
               <div style={{ background: "rgba(2,195,154,0.1)", border: `1px solid ${C.teal}`, borderRadius: 10, padding: 12, marginBottom: 20, fontSize: 13, color: C.teal }}>
                 ✅ Data berhasil disinkron ke server
+              </div>
+            ) : (
+              <div style={{ background: "rgba(255,209,102,0.1)", border: `1px solid ${C.yellow}`, borderRadius: 10, padding: 12, marginBottom: 20, fontSize: 13, color: C.yellow }}>
+                ⏳ Tersimpan lokal — akan sinkron ke server saat ada sinyal
               </div>
             )}
             <button onClick={startTriage} style={{ width: "100%", padding: 16, borderRadius: 12, background: C.teal, color: C.white, fontSize: 16, fontWeight: 700, border: "none", cursor: "pointer", marginBottom: 12 }}>
@@ -340,7 +468,7 @@ export default function ChildTriagePage() {
   );
 }
 
-function QCard({ question, hint, children }: { question: string; hint?: string; children: React.ReactNode; }) {
+function QCard({ question, hint, children }: { question: string; hint?: string; children: React.ReactNode }) {
   return (
     <div style={{ padding: "32px 20px" }}>
       <p style={{ color: C.dim, fontSize: 13, marginBottom: 8 }}>Posyandu Triage</p>
@@ -351,7 +479,7 @@ function QCard({ question, hint, children }: { question: string; hint?: string; 
   );
 }
 
-function TInput({ placeholder, value, onChange, onSubmit, type = "text" }: { placeholder: string; value: string; onChange: (v: string) => void; onSubmit: () => void; type?: string; }) {
+function TInput({ placeholder, value, onChange, onSubmit, type = "text" }: { placeholder: string; value: string; onChange: (v: string) => void; onSubmit: () => void; type?: string }) {
   return (
     <div>
       <input type={type} placeholder={placeholder} value={value} onChange={e => onChange(e.target.value)} onKeyDown={e => e.key === "Enter" && onSubmit()} autoFocus
@@ -361,7 +489,7 @@ function TInput({ placeholder, value, onChange, onSubmit, type = "text" }: { pla
   );
 }
 
-function CBtn({ label, sub, onClick }: { label: string; sub?: string; onClick: () => void; }) {
+function CBtn({ label, sub, onClick }: { label: string; sub?: string; onClick: () => void }) {
   return (
     <button onClick={onClick} style={{ width: "100%", padding: "16px 20px", borderRadius: 12, background: C.card, border: `1.5px solid ${C.border}`, color: C.white, fontSize: 16, fontWeight: 600, cursor: "pointer", marginBottom: 12, textAlign: "left" }}>
       {label}
