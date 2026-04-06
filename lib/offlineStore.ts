@@ -13,6 +13,7 @@ export interface QueuedCase {
   // Universal patient fields
   patientName: string;
   nik?: string;                // NIK 16 digit — wajib untuk child module
+  dob?: string | null;         // ISO YYYY-MM-DD from DOB input
   ageMonths: number | null;    // null for maternal/postpartum
   ageDays: number | null;      // for neonatal (0-28 days)
   gender: 'male' | 'female' | 'unknown';
