@@ -1,11 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { getIdentity, clearIdentity } from "@/lib/auth";
 import { getPendingCount, getAllCases, type QueuedCase, moduleColor, moduleLabel, getPatientName, formatAge } from "@/lib/offlineStore";
 
-// ── Colours ───────────────────────────────────────────────────────────────────
 const C = {
   bg: "#0D1F1C",
   card: "rgba(255,255,255,0.05)",
@@ -34,26 +33,67 @@ export default function TriagePage() {
   const router = useRouter();
   const [identity, setIdentity] = useState<{ name: string; profileId: string; ngoId: string } | null>(null);
   const [pendingCount, setPendingCount] = useState(0);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
   const [view, setView] = useState<View>("home");
   const [history, setHistory] = useState<QueuedCase[]>([]);
+
+  // ── Refresh pending count from IndexedDB ──────────────────────────────────
+  const refreshPending = useCallback(async () => {
+    const count = await getPendingCount();
+    setPendingCount(count);
+  }, []);
+
+  // ── Run sync then always refresh count regardless of result ───────────────
+  const runSync = useCallback(async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    try {
+      const { syncPendingCases } = await import("@/lib/syncClient");
+      await syncPendingCases();
+    } catch {
+      // Silently ignore sync errors — will retry on next online event
+    } finally {
+      // ALWAYS clear syncing state and refresh count, even on error
+      setIsSyncing(false);
+      await refreshPending();
+    }
+  }, [isSyncing, refreshPending]);
 
   useEffect(() => {
     const id = getIdentity();
     if (!id) { router.replace("/"); return; }
     setIdentity(id);
-    setIsOnline(navigator.onLine);
-    window.addEventListener("online", () => {
+
+    const online = navigator.onLine;
+    setIsOnline(online);
+
+    // Initial pending count
+    refreshPending();
+
+    // If already online on mount, run sync after short delay
+    if (online) {
+      const t = setTimeout(() => runSync(), 2000);
+      return () => clearTimeout(t);
+    }
+  }, [router, refreshPending]); // runSync intentionally excluded from deps here
+
+  useEffect(() => {
+    const handleOnline = () => {
       setIsOnline(true);
-      import("@/lib/syncClient").then(({ syncPendingCases }) => {
-        syncPendingCases().then(({ synced }) => {
-          if (synced > 0) getPendingCount().then(setPendingCount);
-        });
-      });
-    });
-    window.addEventListener("offline", () => setIsOnline(false));
-    getPendingCount().then(setPendingCount);
-  }, [router]);
+      runSync();
+    };
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    // Cleanup — removes listeners when component unmounts
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, [runSync]);
 
   async function showHistory() {
     const cases = await getAllCases();
@@ -82,7 +122,16 @@ export default function TriagePage() {
           <div style={{ color: C.dim, fontSize: 12 }}>{identity.name}</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          {pendingCount > 0 && (
+          {isSyncing && (
+            <div style={{
+              background: "rgba(2,195,154,0.15)", color: C.teal,
+              borderRadius: 12, padding: "2px 10px", fontSize: 12, fontWeight: 600,
+              border: `1px solid rgba(2,195,154,0.3)`,
+            }}>
+              ↻ Sinkronisasi…
+            </div>
+          )}
+          {!isSyncing && pendingCount > 0 && (
             <div style={{
               background: C.yellow, color: "#000", borderRadius: 12,
               padding: "2px 10px", fontSize: 12, fontWeight: 700,
@@ -114,7 +163,7 @@ export default function TriagePage() {
         {view === "home" && (
           <div style={{ padding: "32px 20px" }}>
 
-           <div style={{ textAlign: "center", marginBottom: 32 }}>
+            <div style={{ textAlign: "center", marginBottom: 32 }}>
               <div style={{
                 width: 72, height: 72,
                 borderRadius: 20,
@@ -195,7 +244,7 @@ export default function TriagePage() {
               </button>
             </div>
 
-            {pendingCount > 0 && (
+            {!isSyncing && pendingCount > 0 && (
               <div style={{
                 marginTop: 16, padding: 14, borderRadius: 12,
                 background: "rgba(255,209,102,0.1)",
@@ -204,6 +253,18 @@ export default function TriagePage() {
                 <p style={{ color: C.yellow, fontSize: 13, margin: 0 }}>
                   ⏳ {pendingCount} kasus menunggu sinkronisasi.
                   {isOnline ? " Sinkronisasi akan segera dilakukan." : " Akan sinkron saat ada sinyal."}
+                </p>
+              </div>
+            )}
+
+            {isSyncing && (
+              <div style={{
+                marginTop: 16, padding: 14, borderRadius: 12,
+                background: "rgba(2,195,154,0.08)",
+                border: `1px solid rgba(2,195,154,0.3)`,
+              }}>
+                <p style={{ color: C.teal, fontSize: 13, margin: 0 }}>
+                  ↻ Sedang menyinkronkan data ke server…
                 </p>
               </div>
             )}
@@ -277,7 +338,6 @@ export default function TriagePage() {
   );
 }
 
-// ── Module card component ──────────────────────────────────────────────────────
 function ModuleCard({ emoji, title, subtitle, color, onClick }: {
   emoji: string;
   title: string;
