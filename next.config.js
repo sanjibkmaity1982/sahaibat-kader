@@ -8,23 +8,23 @@ const withPWA = require("@ducanh2912/next-pwa").default({
   fallbackRoutes: {
     document: "/offline",
   },
-  workboxOptions: {
-    additionalManifestEntries: [
-      { url: "/", revision: "v4" },
-      { url: "/triage", revision: "v4" },
-      { url: "/triage/child", revision: "v4" },
-      { url: "/triage/maternal", revision: "v4" },
-      { url: "/triage/neonatal", revision: "v4" },
-      { url: "/triage/postpartum", revision: "v4" },
-      { url: "/offline", revision: "v4" },
-    ],
-    navigateFallbackDenylist: [/^\/api\//],
-    runtimeCaching: [
-      // Block ALL /api/* from cache — always go to network
-      {
-        urlPattern: /^\/api\/.*/,
-        handler: "NetworkOnly",
-      },
+workboxOptions: {
+  navigationPreload: true,   // ADD THIS
+  additionalManifestEntries: [
+    { url: "/", revision: "v5" },           // v4 → v5
+    { url: "/triage", revision: "v5" },
+    { url: "/triage/child", revision: "v5" },
+    { url: "/triage/maternal", revision: "v5" },
+    { url: "/triage/neonatal", revision: "v5" },
+    { url: "/triage/postpartum", revision: "v5" },
+    { url: "/offline", revision: "v5" },
+  ],
+  navigateFallbackDenylist: [/^\/api\//],
+  runtimeCaching: [
+    {
+      urlPattern: /^\/api\/.*/,
+      handler: "NetworkOnly",
+    },
       // Pages
       {
         urlPattern: /^\/$|^\/triage(\/.*)?$|^\/offline$|^\/privacy$/,
