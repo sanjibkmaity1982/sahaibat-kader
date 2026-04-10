@@ -478,7 +478,7 @@ export default function LoginPage() {
             <span style={{ color: "rgba(255,255,255,0.15)" }}>·</span>
             <a href="mailto:privacy@sahaibat.com" style={{ color: "rgba(2,195,154,0.6)", textDecoration: "none", fontSize: 12, fontWeight: 500 }}>Kontak</a>
           </div>
-          <div>© 2026 SahAIbat Health — Vinatra</div>
+          <div>© 2026 SahAIbat Health — Viantra</div>
           <div style={{ marginTop: 4, fontSize: 10, color: "rgba(255,255,255,0.12)" }}>
             NIB: 1202260248509 · PSE Lingkup Privat Asing
           </div>
