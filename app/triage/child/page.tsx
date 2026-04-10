@@ -1,7 +1,7 @@
 "use client";
 
 // app/triage/child/page.tsx
-// Production v3 — NIK mandatory, DOB/age flexible input, WHO flags, auto-sync
+// Production v3 — NIK optional, DOB/age flexible input, WHO flags, auto-sync
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
@@ -19,9 +19,9 @@ type Step =
 interface TriageState {
   childName: string;
   nik: string;
-  dob: string | null;          // ISO YYYY-MM-DD
+  dob: string | null;
   ageMonths: number | null;
-  ageSource: string;           // 'dob_exact' | 'manual_months' | 'manual_years'
+  ageSource: string;
   gender: "male" | "female" | null;
   weightKg: number | null;
   heightCm: number | null;
@@ -71,7 +71,7 @@ export default function ChildTriagePage() {
   const [step, setStep] = useState<Step>("home");
   const [triage, setTriage] = useState<TriageState>(emptyState);
   const [input, setInput] = useState("");
-  const [inputB, setInputB] = useState(""); // second input for years+months
+  const [inputB, setInputB] = useState("");
   const [error, setError] = useState("");
   const [result, setResult] = useState<QueuedCase | null>(null);
   const [pendingCount, setPendingCount] = useState(0);
@@ -113,21 +113,24 @@ export default function ChildTriagePage() {
     next({ childName: input.trim() }, "nik");
   }
 
-function submitNik() {
-  const val = input.trim().replace(/\s/g, "");
-  const upper = val.toUpperCase();
-  if (val === '' || upper === 'SKIP' || upper === 'S' || upper === 'LEWATI') {
-    next({ nik: '' }, "age_method"); return;
+  function submitNik() {
+    const val = input.trim().replace(/\s/g, "");
+    const upper = val.toUpperCase();
+    // Allow skip via typing or empty
+    if (val === "" || upper === "SKIP" || upper === "S" || upper === "LEWATI") {
+      next({ nik: "" }, "age_method");
+      return;
+    }
+    if (!/^\d{16}$/.test(val)) {
+      setError("NIK harus 16 digit angka. Tekan 'Lewati' jika belum ada NIK.");
+      return;
+    }
+    next({ nik: val }, "age_method");
   }
-  if (!/^\d{16}$/.test(val)) {
-    setError("NIK harus 16 digit angka. Ketik SKIP atau tekan 'Lewati' jika belum ada NIK.");
-    return;
-  }
-  next({ nik: val }, "age_method");
-}
+
   function submitDob() {
     if (!input) { setError("Pilih tanggal lahir."); return; }
-    const dob = input; // YYYY-MM-DD from date input
+    const dob = input;
     const birth = new Date(dob);
     const now = new Date();
     if (birth > now) { setError("Tanggal lahir tidak boleh di masa depan."); return; }
@@ -194,7 +197,7 @@ function submitNik() {
       ngoId: identity?.ngoId ?? "",
       moduleType: "child",
       patientName: t.childName,
-      nik: t.nik,
+      nik: t.nik || undefined,
       dob: t.dob,
       ageMonths: t.ageMonths,
       ageDays: null,
@@ -223,7 +226,6 @@ function submitNik() {
     setSynced(false);
     setStep("result");
 
-    // Attempt immediate sync if online
     if (navigator.onLine) {
       syncPendingCases().then(({ synced: s }) => {
         if (s > 0) {
@@ -239,8 +241,8 @@ function submitNik() {
   const ageDisplay = triage.ageMonths !== null
     ? triage.ageMonths < 12
       ? `${triage.ageMonths} bulan`
-      : `${Math.floor(triage.ageMonths / 12)} thn ${triage.ageMonths % 12 > 0 ? triage.ageMonths % 12 + ' bln' : ''}`
-    : '';
+      : `${Math.floor(triage.ageMonths / 12)} thn ${triage.ageMonths % 12 > 0 ? triage.ageMonths % 12 + " bln" : ""}`
+    : "";
 
   return (
     <div style={{ minHeight: "100vh", background: C.bg, display: "flex", flexDirection: "column" }}>
@@ -294,46 +296,39 @@ function submitNik() {
         )}
 
         {step === "nik" && (
-          <QCard question="NIK anak?" hint="Nomor Induk Kependudukan — 16 digit dari KTP/KIA. Wajib diisi untuk mencegah data ganda.">
-            <TInput placeholder="16 digit NIK, atau tekan Lewati" value={input} onChange={setInput} onSubmit={submitNik} type="number" />
-            <p style={{ color: C.teal, fontSize: 12, marginTop: 4 }}>✅ Masukkan NIK jika tersedia</p>
-<p style={{ color: C.dim, fontSize: 12, marginTop: 2 }}>📝 Ketik <strong style={{ color: C.yellow }}>SKIP</strong> jika belum ada NIK</p>
-<button onClick={() => { setInput(''); next({ nik: '' }, 'age_method'); }}
-  style={{
-  width: '100%', padding: 14, marginTop: 12, borderRadius: 10,
-  background: 'rgba(255,209,102,0.1)', border: `1px solid ${C.yellow}`,
-  color: C.yellow, fontSize: 14, fontWeight: 600, cursor: 'pointer',
-}}
-  Lewati — NIK belum tersedia
-</button>
+          <QCard question="NIK anak?" hint="Nomor Induk Kependudukan — 16 digit dari KTP/KIA orang tua.">
+            <TInput placeholder="16 digit NIK, atau tekan Lewati" value={input} onChange={setInput} onSubmit={submitNik} type="text" />
+            <p style={{ color: C.teal, fontSize: 12, marginTop: 4 }}>
+              ✅ Masukkan NIK jika tersedia — mencegah data ganda
+            </p>
+            <p style={{ color: C.dim, fontSize: 12, marginTop: 2 }}>
+              📝 Ketik <strong style={{ color: C.yellow }}>SKIP</strong> atau tekan tombol di bawah jika anak belum punya NIK
+            </p>
+            <button
+              onClick={() => { setInput(""); next({ nik: "" }, "age_method"); }}
+              style={{
+                width: "100%", padding: 14, marginTop: 12, borderRadius: 10,
+                background: "rgba(255,209,102,0.1)", border: `1px solid ${C.yellow}`,
+                color: C.yellow, fontSize: 14, fontWeight: 600, cursor: "pointer",
+              }}
+            >
+              Lewati — NIK belum tersedia
+            </button>
             {error && <Err msg={error} />}
           </QCard>
         )}
 
         {step === "age_method" && (
           <QCard question="Bagaimana cara memasukkan usia anak?" hint="Pilih metode yang tersedia">
-            <CBtn
-              label="📅 Tanggal Lahir"
-              sub="Hitung otomatis dari tanggal lahir — paling akurat"
-              onClick={() => setStep("age_dob")}
-            />
-            <CBtn
-              label="🔢 Usia dalam Bulan"
-              sub="Contoh: 18 bulan"
-              onClick={() => setStep("age_months")}
-            />
-            <CBtn
-              label="📆 Tahun & Bulan"
-              sub="Contoh: 1 tahun 6 bulan"
-              onClick={() => setStep("age_years")}
-            />
+            <CBtn label="📅 Tanggal Lahir" sub="Hitung otomatis dari tanggal lahir — paling akurat" onClick={() => setStep("age_dob")} />
+            <CBtn label="🔢 Usia dalam Bulan" sub="Contoh: 18 bulan" onClick={() => setStep("age_months")} />
+            <CBtn label="📆 Tahun & Bulan" sub="Contoh: 1 tahun 6 bulan" onClick={() => setStep("age_years")} />
           </QCard>
         )}
 
-{step === "age_dob" && (
+        {step === "age_dob" && (
           <QCard question="Tanggal lahir anak?" hint="Format: Hari / Bulan / Tahun">
             <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-              {/* Day */}
               <div style={{ flex: 1 }}>
                 <div style={{ color: C.dim, fontSize: 11, marginBottom: 4, textAlign: "center" }}>Tanggal</div>
                 <select
@@ -350,7 +345,6 @@ function submitNik() {
                   ))}
                 </select>
               </div>
-              {/* Month */}
               <div style={{ flex: 2 }}>
                 <div style={{ color: C.dim, fontSize: 11, marginBottom: 4, textAlign: "center" }}>Bulan</div>
                 <select
@@ -367,7 +361,6 @@ function submitNik() {
                   ))}
                 </select>
               </div>
-              {/* Year */}
               <div style={{ flex: 2 }}>
                 <div style={{ color: C.dim, fontSize: 11, marginBottom: 4, textAlign: "center" }}>Tahun</div>
                 <select
@@ -402,6 +395,7 @@ function submitNik() {
             {error && <Err msg={error} />}
           </QCard>
         )}
+
         {step === "age_months" && (
           <QCard question="Usia anak (bulan)?" hint="Masukkan total usia dalam bulan. Contoh: 18">
             <TInput placeholder="Contoh: 18" value={input} onChange={setInput} onSubmit={submitAgeMonths} type="number" />
@@ -417,19 +411,13 @@ function submitNik() {
             <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
               <div style={{ flex: 1 }}>
                 <div style={{ color: C.dim, fontSize: 12, marginBottom: 6 }}>Tahun</div>
-                <input
-                  type="number" placeholder="0–5" value={input}
-                  onChange={e => setInput(e.target.value)} min={0} max={5}
-                  style={{ width: "100%", padding: "14px 12px", borderRadius: 10, background: "rgba(255,255,255,0.08)", border: `1.5px solid ${C.border}`, color: C.white, fontSize: 18, outline: "none", boxSizing: "border-box" }}
-                />
+                <input type="number" placeholder="0–5" value={input} onChange={e => setInput(e.target.value)} min={0} max={5}
+                  style={{ width: "100%", padding: "14px 12px", borderRadius: 10, background: "rgba(255,255,255,0.08)", border: `1.5px solid ${C.border}`, color: C.white, fontSize: 18, outline: "none", boxSizing: "border-box" }} />
               </div>
               <div style={{ flex: 1 }}>
                 <div style={{ color: C.dim, fontSize: 12, marginBottom: 6 }}>Bulan</div>
-                <input
-                  type="number" placeholder="0–11" value={inputB}
-                  onChange={e => setInputB(e.target.value)} min={0} max={11}
-                  style={{ width: "100%", padding: "14px 12px", borderRadius: 10, background: "rgba(255,255,255,0.08)", border: `1.5px solid ${C.border}`, color: C.white, fontSize: 18, outline: "none", boxSizing: "border-box" }}
-                />
+                <input type="number" placeholder="0–11" value={inputB} onChange={e => setInputB(e.target.value)} min={0} max={11}
+                  style={{ width: "100%", padding: "14px 12px", borderRadius: 10, background: "rgba(255,255,255,0.08)", border: `1.5px solid ${C.border}`, color: C.white, fontSize: 18, outline: "none", boxSizing: "border-box" }} />
               </div>
             </div>
             {(input || inputB) && (
