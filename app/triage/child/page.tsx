@@ -113,13 +113,18 @@ export default function ChildTriagePage() {
     next({ childName: input.trim() }, "nik");
   }
 
-  function submitNik() {
-    const val = input.trim().replace(/\s/g, "");
-  if (val.toUpperCase() === 'SKIP' || val === '') { next({ nik: '' }, "age_method"); return; }
-if (!/^\d{16}$/.test(val)) { setError("NIK harus 16 digit angka, atau ketik SKIP jika belum ada."); return; }
-next({ nik: val }, "age_method");
+function submitNik() {
+  const val = input.trim().replace(/\s/g, "");
+  const upper = val.toUpperCase();
+  if (val === '' || upper === 'SKIP' || upper === 'S' || upper === 'LEWATI') {
+    next({ nik: '' }, "age_method"); return;
   }
-
+  if (!/^\d{16}$/.test(val)) {
+    setError("NIK harus 16 digit angka. Ketik SKIP atau tekan 'Lewati' jika belum ada NIK.");
+    return;
+  }
+  next({ nik: val }, "age_method");
+}
   function submitDob() {
     if (!input) { setError("Pilih tanggal lahir."); return; }
     const dob = input; // YYYY-MM-DD from date input
@@ -290,11 +295,15 @@ next({ nik: val }, "age_method");
 
         {step === "nik" && (
           <QCard question="NIK anak?" hint="Nomor Induk Kependudukan — 16 digit dari KTP/KIA. Wajib diisi untuk mencegah data ganda.">
-            <TInput placeholder="Contoh: 5271010203040001" value={input} onChange={setInput} onSubmit={submitNik} type="number" />
+            <TInput placeholder="16 digit NIK, atau tekan Lewati" value={input} onChange={setInput} onSubmit={submitNik} type="number" />
             <p style={{ color: C.teal, fontSize: 12, marginTop: 4 }}>✅ Masukkan NIK jika tersedia</p>
 <p style={{ color: C.dim, fontSize: 12, marginTop: 2 }}>📝 Ketik <strong style={{ color: C.yellow }}>SKIP</strong> jika belum ada NIK</p>
 <button onClick={() => { setInput(''); next({ nik: '' }, 'age_method'); }}
-  style={{ width: '100%', padding: 12, marginTop: 8, borderRadius: 10, background: 'transparent', border: `1px solid ${C.border}`, color: C.dim, fontSize: 13, cursor: 'pointer' }}>
+  style={{
+  width: '100%', padding: 14, marginTop: 12, borderRadius: 10,
+  background: 'rgba(255,209,102,0.1)', border: `1px solid ${C.yellow}`,
+  color: C.yellow, fontSize: 14, fontWeight: 600, cursor: 'pointer',
+}}
   Lewati — NIK belum tersedia
 </button>
             {error && <Err msg={error} />}
