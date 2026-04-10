@@ -44,7 +44,6 @@ export interface QueuedCase {
 }
 
 // ── Legacy support — keep childName as alias for patientName ─────────────────
-// Existing child cases use childName. New code uses patientName.
 export function getPatientName(c: QueuedCase): string {
   return c.patientName || (c as any).childName || 'Tidak diketahui';
 }
@@ -65,7 +64,6 @@ function openDB(): Promise<IDBDatabase> {
         store.createIndex('createdAt', 'createdAt', { unique: false });
         store.createIndex('moduleType', 'moduleType', { unique: false });
       } else {
-        // Version 2 migration: add moduleType index if not exists
         const tx = (e.target as IDBOpenDBRequest).transaction!;
         const store = tx.objectStore(STORE_NAME);
         if (!store.indexNames.contains('moduleType')) {
@@ -88,13 +86,16 @@ export async function saveCase(c: QueuedCase): Promise<void> {
   });
 }
 
+// ── Returns both 'pending' AND 'failed' cases so failed cases are retried ────
 export async function getPendingCases(): Promise<QueuedCase[]> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readonly');
-    const index = tx.objectStore(STORE_NAME).index('syncStatus');
-    const req = index.getAll('pending');
-    req.onsuccess = () => resolve(req.result as QueuedCase[]);
+    const req = tx.objectStore(STORE_NAME).getAll();
+    req.onsuccess = () => {
+      const all = req.result as QueuedCase[];
+      resolve(all.filter(c => c.syncStatus === 'pending' || c.syncStatus === 'failed'));
+    };
     req.onerror = () => reject(req.error);
   });
 }
@@ -141,13 +142,16 @@ export async function markSyncFailed(localId: string, error: string): Promise<vo
   });
 }
 
+// ── Count includes both 'pending' and 'failed' ────────────────────────────────
 export async function getPendingCount(): Promise<number> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readonly');
-    const index = tx.objectStore(STORE_NAME).index('syncStatus');
-    const req = index.count('pending');
-    req.onsuccess = () => resolve(req.result);
+    const req = tx.objectStore(STORE_NAME).getAll();
+    req.onsuccess = () => {
+      const all = req.result as QueuedCase[];
+      resolve(all.filter(c => c.syncStatus === 'pending' || c.syncStatus === 'failed').length);
+    };
     req.onerror = () => reject(req.error);
   });
 }
@@ -156,11 +160,9 @@ export function generateLocalId(): string {
   return `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-// ── Age display helper (shared across all modules) ────────────────────────────
+// ── Age display helper ────────────────────────────────────────────────────────
 export function formatAge(ageMonths: number | null, ageDays: number | null): string {
-  if (ageDays !== null && ageDays >= 0 && ageDays <= 28) {
-    return `${ageDays} hari`;
-  }
+  if (ageDays !== null && ageDays >= 0 && ageDays <= 28) return `${ageDays} hari`;
   if (ageMonths === null) return '-';
   if (ageMonths === 0) return '< 1 bulan';
   if (ageMonths < 12) return `${ageMonths} bulan`;
@@ -170,13 +172,13 @@ export function formatAge(ageMonths: number | null, ageDays: number | null): str
   return `${years} tahun ${months} bulan`;
 }
 
-// ── Module colour (for history cards) ────────────────────────────────────────
+// ── Module colour ─────────────────────────────────────────────────────────────
 export function moduleColor(moduleType: ModuleType): string {
   switch (moduleType) {
-    case 'child':      return '#02C39A'; // teal
-    case 'maternal':   return '#E91E8C'; // pink
-    case 'postpartum': return '#9C27B0'; // purple
-    case 'neonatal':   return '#FF9800'; // orange
+    case 'child':      return '#02C39A';
+    case 'maternal':   return '#E91E8C';
+    case 'postpartum': return '#9C27B0';
+    case 'neonatal':   return '#FF9800';
   }
 }
 
