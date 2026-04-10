@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { getIdentity } from "@/lib/auth";
 import { runMaternalTriage, type MaternalInput } from "@/lib/maternalEngine";
 import { saveCase, getPendingCount, generateLocalId, type QueuedCase } from "@/lib/offlineStore";
+import { syncPendingCases } from "@/lib/syncClient";
 
 const C = {
   bg: "#0D1F1C", card: "rgba(255,255,255,0.05)",
