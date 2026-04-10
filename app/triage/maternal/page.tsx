@@ -37,6 +37,7 @@ export default function MaternalTriagePage() {
   const [textInput, setTextInput] = useState("");
   const [error, setError] = useState("");
   const [result, setResult] = useState<QueuedCase | null>(null);
+  const [pendingCount, setPendingCount] = useState(0);
   const [isOnline, setIsOnline] = useState(true);
 
   useEffect(() => {
@@ -77,6 +78,13 @@ export default function MaternalTriagePage() {
     await saveCase(queued);
     setResult(queued);
     setStep("result");
+
+    // Attempt immediate sync if online
+    if (navigator.onLine) {
+      syncPendingCases().then(({ synced: s }) => {
+        if (s > 0) getPendingCount().then(setPendingCount);
+      });
+    }
   }
 
   function reset() {
