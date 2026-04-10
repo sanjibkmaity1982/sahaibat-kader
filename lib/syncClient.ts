@@ -26,11 +26,10 @@ export async function syncPendingCases(): Promise<{ synced: number; failed: numb
     }
 
     const data = await res.json();
-    const results: { localId: string; success: boolean; error?: string }[] =
+const results: { localId: string; ok?: boolean; success?: boolean; error?: string }[] =
       data.results ?? [];
-
     for (const r of results) {
-      if (r.success) {
+      if (r.ok || r.success) {
         await markSynced(r.localId);
         synced++;
       } else {
