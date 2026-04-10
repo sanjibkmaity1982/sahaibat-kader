@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { getIdentity } from "@/lib/auth";
 import { runPostpartumTriage, type PostpartumInput } from "@/lib/postpartumEngine";
 import { saveCase, getPendingCount, generateLocalId, type QueuedCase } from "@/lib/offlineStore";
+import { syncPendingCases } from "@/lib/syncClient";
 
 const C = {
   bg: "#0D1F1C", card: "rgba(255,255,255,0.05)",
@@ -34,6 +35,7 @@ export default function PostpartumTriagePage() {
   const [textInput, setTextInput] = useState("");
   const [error, setError] = useState("");
   const [result, setResult] = useState<QueuedCase | null>(null);
+  const [pendingCount, setPendingCount] = useState(0);
   const [isOnline, setIsOnline] = useState(true);
 
   useEffect(() => {
@@ -73,6 +75,13 @@ export default function PostpartumTriagePage() {
     await saveCase(queued);
     setResult(queued);
     setStep("result");
+
+    // Attempt immediate sync if online
+    if (navigator.onLine) {
+      syncPendingCases().then(({ synced: s }) => {
+        if (s > 0) getPendingCount().then(setPendingCount);
+      });
+    }
   }
 
   function reset() {
