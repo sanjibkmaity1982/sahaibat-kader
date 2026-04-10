@@ -9,7 +9,6 @@ const withPWA = require("@ducanh2912/next-pwa").default({
     document: "/offline",
   },
   workboxOptions: {
-    // Precache all app shell routes at SW install — works on Android Chrome
     additionalManifestEntries: [
       { url: "/", revision: "v4" },
       { url: "/triage", revision: "v4" },
@@ -19,8 +18,14 @@ const withPWA = require("@ducanh2912/next-pwa").default({
       { url: "/triage/postpartum", revision: "v4" },
       { url: "/offline", revision: "v4" },
     ],
+    navigateFallbackDenylist: [/^\/api\//],
     runtimeCaching: [
-      // Pages — StaleWhileRevalidate so offline works AND online stays fresh
+      // Block ALL /api/* from cache — always go to network
+      {
+        urlPattern: /^\/api\/.*/,
+        handler: "NetworkOnly",
+      },
+      // Pages
       {
         urlPattern: /^\/$|^\/triage(\/.*)?$|^\/offline$|^\/privacy$/,
         handler: "StaleWhileRevalidate",
@@ -32,7 +37,7 @@ const withPWA = require("@ducanh2912/next-pwa").default({
           },
         },
       },
-      // Static assets — CacheFirst, long TTL
+      // Static assets
       {
         urlPattern: /\.(?:js|css|woff2?|png|jpg|svg|ico)$/,
         handler: "CacheFirst",
@@ -68,18 +73,10 @@ const withPWA = require("@ducanh2912/next-pwa").default({
           },
         },
       },
-      // Supabase API — NetworkFirst
+      // Supabase — never cache
       {
         urlPattern: /^https:\/\/.*\.supabase\.co\/.*/,
-        handler: "NetworkFirst",
-        options: {
-          cacheName: "sahaibat-api-v4",
-          expiration: {
-            maxEntries: 50,
-            maxAgeSeconds: 24 * 60 * 60,
-          },
-          networkTimeoutSeconds: 5,
-        },
+        handler: "NetworkOnly",
       },
     ],
   },
