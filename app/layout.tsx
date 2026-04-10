@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import CacheWarmup from "./CacheWarmup";
+import ServiceWorkerRegistration from "./ServiceWorkerRegistration";
 
 export const metadata: Metadata = {
   title: "SahAIbat Kader",
@@ -33,6 +34,7 @@ export default function RootLayout({
       </head>
       <body style={{ margin: 0, background: "#0D1F1C", minHeight: "100vh" }}>
         <CacheWarmup />
+        <ServiceWorkerRegistration />
         {children}
       </body>
     </html>
