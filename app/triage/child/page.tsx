@@ -115,9 +115,9 @@ export default function ChildTriagePage() {
 
   function submitNik() {
     const val = input.trim().replace(/\s/g, "");
-    if (!val) { setError("NIK wajib diisi. Tidak boleh dilewati."); return; }
-    if (!/^\d{16}$/.test(val)) { setError("NIK harus 16 digit angka."); return; }
-    next({ nik: val }, "age_method");
+  if (val.toUpperCase() === 'SKIP' || val === '') { next({ nik: '' }, "age_method"); return; }
+if (!/^\d{16}$/.test(val)) { setError("NIK harus 16 digit angka, atau ketik SKIP jika belum ada."); return; }
+next({ nik: val }, "age_method");
   }
 
   function submitDob() {
@@ -291,7 +291,12 @@ export default function ChildTriagePage() {
         {step === "nik" && (
           <QCard question="NIK anak?" hint="Nomor Induk Kependudukan — 16 digit dari KTP/KIA. Wajib diisi untuk mencegah data ganda.">
             <TInput placeholder="Contoh: 5271010203040001" value={input} onChange={setInput} onSubmit={submitNik} type="number" />
-            <p style={{ color: C.yellow, fontSize: 12, marginTop: 4 }}>⚠️ NIK wajib diisi — tidak dapat dilewati</p>
+            <p style={{ color: C.teal, fontSize: 12, marginTop: 4 }}>✅ Masukkan NIK jika tersedia</p>
+<p style={{ color: C.dim, fontSize: 12, marginTop: 2 }}>📝 Ketik <strong style={{ color: C.yellow }}>SKIP</strong> jika belum ada NIK</p>
+<button onClick={() => { setInput(''); next({ nik: '' }, 'age_method'); }}
+  style={{ width: '100%', padding: 12, marginTop: 8, borderRadius: 10, background: 'transparent', border: `1px solid ${C.border}`, color: C.dim, fontSize: 13, cursor: 'pointer' }}>
+  Lewati — NIK belum tersedia
+</button>
             {error && <Err msg={error} />}
           </QCard>
         )}
