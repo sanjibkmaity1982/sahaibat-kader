@@ -1,4 +1,5 @@
 {
+  "id": "/",
   "name": "SahAIbat Kader",
   "short_name": "SahAIbat",
   "description": "Alat triase klinis untuk Kader Posyandu — bekerja tanpa internet",
@@ -7,6 +8,7 @@
   "orientation": "portrait",
   "background_color": "#0D1F1C",
   "theme_color": "#02C39A",
+  "prefer_related_applications": false,
   "icons": [
     {
       "src": "/icons/icon-192.png",
