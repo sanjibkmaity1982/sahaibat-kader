@@ -1,6 +1,8 @@
 // lib/offlineEngine.ts
 // Browser-safe offline WHO growth engine for SahAIbat Kader PWA.
 // Now uses @sahaibat/growth-engine as single source of truth.
+// UPDATED: Feature 1 (velocity engine) + Feature 2 (CMAM flag) added.
+// All WHO classification logic unchanged — zero AI cost, fully offline.
 
 import {
   computeWHOClassification,
@@ -9,6 +11,16 @@ import {
   whoEmoji,
   type WHOCategory,
 } from '@sahaibat/growth-engine';
+
+import {
+  computeVelocity,
+  buildVelocitySection,
+  type VelocityFlag,
+} from './velocityEngine';
+
+import {
+  shouldStartCmam,
+} from './cmamEngine';
 
 export interface OfflineTriageInput {
   weightKg: number;
@@ -20,6 +32,17 @@ export interface OfflineTriageInput {
   milestoneScore: '1' | '2' | '3';
   childName?: string;
   chwName?: string;
+
+  // ── Feature 1: previous visit data for velocity (optional) ──
+  // Populated from offlineStore when child has prior visits
+  previousVisit?: {
+    weight_kg: number;
+    severity: string;
+    visit_date: string;
+  } | null;
+
+  // Consecutive declining visits count from child record
+  consecutiveDeclines?: number;
 }
 
 export interface OfflineTriageResult {
@@ -33,6 +56,15 @@ export interface OfflineTriageResult {
   reportText: string;
   followUpDays: number;
   referNow: boolean;
+
+  // ── Feature 1: velocity ──────────────────────────────────────
+  velocityFlag: VelocityFlag;
+  velocityMessage: string;
+
+  // ── Feature 2: CMAM ─────────────────────────────────────────
+  // true = show CMAM confirmation question after result screen
+  // One extra tap — only for SAM cases
+  cmamConfirmNeeded: boolean;
 }
 
 export function runGrowthTriage(input: OfflineTriageInput): OfflineTriageResult {
@@ -66,6 +98,27 @@ export function runGrowthTriage(input: OfflineTriageInput): OfflineTriageResult 
     : muacCat === 'mam' ? 7
     : input.ageMonths <= 24 ? 30 : 90;
 
+  // ── Feature 1: Velocity calculation (deterministic, offline) ─
+  const velocityResult = computeVelocity(
+    {
+      weight_kg: input.weightKg,
+      severity: isSevere ? 'sam' : isModerate ? 'mam' : 'normal',
+      age_months: input.ageMonths,
+    },
+    input.previousVisit ?? null,
+    input.consecutiveDeclines ?? 0
+  );
+  const velocityMessage = buildVelocitySection(velocityResult);
+
+  // ── Feature 2: CMAM flag (deterministic, no extra Kader work) ─
+  // Only triggers the confirmation question for SAM cases
+  const cmamConfirmNeeded = shouldStartCmam(
+    input.muacCm,
+    wlz,
+    waz
+  );
+
+  // ── Build report text (identical structure to WhatsApp output) ─
   const ageDisplay = input.ageMonths < 12
     ? `${input.ageMonths} bulan`
     : `${Math.floor(input.ageMonths / 12)} tahun ${input.ageMonths % 12 > 0 ? input.ageMonths % 12 + ' bulan' : ''}`.trim();
@@ -121,7 +174,29 @@ export function runGrowthTriage(input: OfflineTriageInput): OfflineTriageResult 
   } else {
     lines.push(`📅 Kunjungan berikutnya: ${input.ageMonths <= 24 ? '1 bulan' : '3 bulan'} lagi`);
   }
+
+  // ── Feature 1: Velocity section appended to report ───────────
+  // Only shows when there is something meaningful (not first_visit or stable)
+  if (velocityMessage && velocityMessage.trim().length > 0) {
+    lines.push('');
+    lines.push(velocityMessage);
+  }
+
   lines.push('Bukan diagnosis. SahAIbat Kader v1.');
 
-  return { riskLevel, waz, laz, wlz, muacCat, isSevere, isModerate, referNow, followUpDays, reportText: lines.join('\n') };
+  return {
+    riskLevel,
+    waz, laz, wlz,
+    muacCat,
+    isSevere,
+    isModerate,
+    referNow,
+    followUpDays,
+    reportText: lines.join('\n'),
+    // Feature 1
+    velocityFlag: velocityResult.flag,
+    velocityMessage,
+    // Feature 2
+    cmamConfirmNeeded,
+  };
 }
