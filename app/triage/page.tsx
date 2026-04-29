@@ -407,9 +407,8 @@ async function showHistory() {
                     ? "✓ Tersinkron"
                     : "⏳ Belum sinkron";
 
-                const syncStatusColor =
-                  row.kind === "server" ||
-                  (row.kind !== "server" && row.local.syncStatus === "synced")
+             const syncStatusColor =
+                  row.kind === "server" || row.local.syncStatus === "synced"
                     ? C.green
                     : C.yellow;
 
