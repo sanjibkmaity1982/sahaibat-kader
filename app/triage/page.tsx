@@ -3,7 +3,17 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { getIdentity, clearIdentity } from "@/lib/auth";
-import { getPendingCount, getAllCases, type QueuedCase, moduleColor, moduleLabel, getPatientName, formatAge } from "@/lib/offlineStore";
+import {
+  getPendingCount,
+  getAllCases,
+  getCachedCases,
+  type QueuedCase,
+  type CachedCase,
+  moduleColor,
+  moduleLabel,
+  getPatientName,
+  formatAge,
+} from "@/lib/offlineStore";
 
 const C = {
   bg: "#0D1F1C",
@@ -27,7 +37,19 @@ function riskColor(level: string) {
   return C.green;
 }
 
+function riskVisualColor(visual: "red" | "amber" | "green" | "gray") {
+  if (visual === "red") return C.red;
+  if (visual === "amber") return C.yellow;
+  if (visual === "green") return C.green;
+  return C.dim;
+}
+
 type View = "home" | "history";
+
+type MergedHistoryRow =
+  | { kind: "local"; local: QueuedCase }
+  | { kind: "server"; server: CachedCase }
+  | { kind: "merged"; local: QueuedCase; server: CachedCase };
 
 export default function TriagePage() {
   const router = useRouter();
@@ -35,8 +57,10 @@ export default function TriagePage() {
   const [pendingCount, setPendingCount] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
-  const [view, setView] = useState<View>("home");
-  const [history, setHistory] = useState<QueuedCase[]>([]);
+ const [view, setView] = useState<View>("home");
+  const [history, setHistory] = useState<MergedHistoryRow[]>([]);
+  const [expandedCaseId, setExpandedCaseId] = useState<string | null>(null);
+  const [cachedDetails, setCachedDetails] = useState<Record<string, CachedCase>>({});
 
   // ── Refresh pending count from IndexedDB ──────────────────────────────────
   const refreshPending = useCallback(async () => {
@@ -95,9 +119,64 @@ export default function TriagePage() {
     };
   }, [runSync]);
 
-  async function showHistory() {
-    const cases = await getAllCases();
-    setHistory(cases);
+async function showHistory() {
+    const [localCases, cachedCases] = await Promise.all([
+      getAllCases(),
+      getCachedCases(),
+    ]);
+
+    // Build a lookup of cached cases by patient_name+created_at(rounded to 10s window)
+    // — this lets us show the richer server data for cases that synced.
+    const cachedLookup: Record<string, CachedCase> = {};
+    for (const c of cachedCases) {
+      cachedLookup[c.case_id] = c;
+    }
+    setCachedDetails(cachedLookup);
+
+    // Merge: server-cached cases take precedence; local-only cases (unsynced or
+    // synced but not yet in cache) appear as "local" rows.
+    const merged: MergedHistoryRow[] = [];
+    const usedCacheIds = new Set<string>();
+
+    // First pass — local cases. Try to match each to a cached server row.
+    for (const local of localCases) {
+      const localTime = new Date(local.createdAt).getTime();
+      const localName = getPatientName(local).toLowerCase();
+      const match = cachedCases.find((sc) => {
+        if (usedCacheIds.has(sc.case_id)) return false;
+        if ((sc.patient_name ?? "").toLowerCase() !== localName) return false;
+        const diff = Math.abs(new Date(sc.created_at).getTime() - localTime);
+        return diff < 10_000; // within 10 seconds
+      });
+      if (match) {
+        usedCacheIds.add(match.case_id);
+        merged.push({ kind: "merged", local, server: match });
+      } else {
+        merged.push({ kind: "local", local });
+      }
+    }
+
+    // Second pass — server cases with no local match (different device, or
+    // local data wiped). Add them as server-only rows.
+    for (const sc of cachedCases) {
+      if (!usedCacheIds.has(sc.case_id)) {
+        merged.push({ kind: "server", server: sc });
+      }
+    }
+
+    // Sort by date descending
+    merged.sort((a, b) => {
+      const aTime = a.kind === "server"
+        ? new Date(a.server.created_at).getTime()
+        : new Date(a.local.createdAt).getTime();
+      const bTime = b.kind === "server"
+        ? new Date(b.server.created_at).getTime()
+        : new Date(b.local.createdAt).getTime();
+      return bTime - aTime;
+    });
+
+    setHistory(merged);
+    setExpandedCaseId(null);
     setView("history");
   }
 
@@ -271,7 +350,7 @@ export default function TriagePage() {
           </div>
         )}
 
-        {/* ── HISTORY ── */}
+{/* ── HISTORY ── */}
         {view === "history" && (
           <div style={{ padding: "24px 20px" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
@@ -290,45 +369,191 @@ export default function TriagePage() {
                 Belum ada kasus tersimpan.
               </p>
             ) : (
-              history.map((c) => (
-                <div key={c.localId} style={{
-                  background: C.card, border: `1px solid ${C.border}`,
-                  borderRadius: 12, padding: 16, marginBottom: 12,
-                }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                    <span style={{ color: C.white, fontWeight: 700 }}>{getPatientName(c)}</span>
-                    <span style={{
-                      color: riskColor(c.riskLevel), fontSize: 12, fontWeight: 700,
-                      background: `${riskColor(c.riskLevel)}20`,
-                      padding: "2px 8px", borderRadius: 8,
-                    }}>
-                      {c.riskLevel}
-                    </span>
+              history.map((row, idx) => {
+                const rowKey =
+                  row.kind === "server"
+                    ? `s-${row.server.case_id}`
+                    : `l-${row.local.localId}`;
+                const isExpanded = expandedCaseId === rowKey;
+
+                // Header (always visible) data
+                const patientName =
+                  row.kind === "server"
+                    ? row.server.patient_name ?? "—"
+                    : getPatientName(row.local);
+
+                const moduleLabelText =
+                  row.kind === "server"
+                    ? row.server.module_type ?? "—"
+                    : moduleLabel(row.local.moduleType);
+
+                const moduleColorVal =
+                  row.kind === "server"
+                    ? C.teal // server cases don't carry the module enum, default tint
+                    : moduleColor(row.local.moduleType);
+
+                const ageLabel =
+                  row.kind === "server"
+                    ? row.server.patient_age_label
+                    : formatAge(row.local.ageMonths, row.local.ageDays);
+
+                const dateIso =
+                  row.kind === "server" ? row.server.created_at : row.local.createdAt;
+
+                const syncStatusText =
+                  row.kind === "server" || (row.kind === "merged" || row.kind === "local"
+                    ? row.local.syncStatus === "synced"
+                    : false)
+                    ? "✓ Tersinkron"
+                    : "⏳ Belum sinkron";
+
+                const syncStatusColor =
+                  row.kind === "server" ||
+                  (row.kind !== "server" && row.local.syncStatus === "synced")
+                    ? C.green
+                    : C.yellow;
+
+                // Risk indicator — server-derived if available, else local riskLevel
+                const riskLabel =
+                  row.kind === "server" || row.kind === "merged"
+                    ? row.server.risk_level ?? "—"
+                    : row.local.riskLevel;
+
+                const riskBg =
+                  row.kind === "server" || row.kind === "merged"
+                    ? riskVisualColor(row.server.risk_visual)
+                    : riskColor(row.local.riskLevel);
+
+                return (
+                  <div
+                    key={rowKey}
+                    onClick={() => setExpandedCaseId(isExpanded ? null : rowKey)}
+                    style={{
+                      background: C.card,
+                      border: `1px solid ${isExpanded ? C.teal : C.border}`,
+                      borderRadius: 12,
+                      padding: 16,
+                      marginBottom: 12,
+                      cursor: "pointer",
+                      transition: "border-color 0.15s",
+                    }}
+                  >
+                    {/* Row header (matches existing layout) */}
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                      <span style={{ color: C.white, fontWeight: 700 }}>{patientName}</span>
+                      <span
+                        style={{
+                          color: riskBg,
+                          fontSize: 12,
+                          fontWeight: 700,
+                          background: `${riskBg}20`,
+                          padding: "2px 8px",
+                          borderRadius: 8,
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        {riskLabel}
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, marginBottom: 4 }}>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          padding: "2px 8px",
+                          borderRadius: 6,
+                          background: `${moduleColorVal}20`,
+                          color: moduleColorVal,
+                        }}
+                      >
+                        {moduleLabelText}
+                      </span>
+                      <span style={{ color: C.dim, fontSize: 12 }}>{ageLabel}</span>
+                    </div>
+                    <div style={{ color: C.dimmer, fontSize: 12, display: "flex", justifyContent: "space-between" }}>
+                      <span>
+                        {new Date(dateIso).toLocaleDateString("id-ID", {
+                          day: "numeric",
+                          month: "short",
+                          year: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                        {" · "}
+                        <span style={{ color: syncStatusColor }}>{syncStatusText}</span>
+                      </span>
+                      <span style={{ color: C.dim, fontSize: 14 }}>{isExpanded ? "▴" : "▾"}</span>
+                    </div>
+
+                    {/* Inline expansion */}
+                    {isExpanded && (
+                      <div
+                        style={{
+                          marginTop: 14,
+                          paddingTop: 14,
+                          borderTop: `1px solid ${C.border}`,
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {/* Server-derived rich fields if available */}
+                        {(row.kind === "server" || row.kind === "merged") && (
+                          <>
+                            <div style={{ marginBottom: 12 }}>
+                              <div style={{ color: C.dim, fontSize: 11, fontWeight: 600, letterSpacing: 0.8, marginBottom: 4 }}>
+                                TEMUAN
+                              </div>
+                              <div style={{ color: C.white, fontSize: 14, fontWeight: 600 }}>
+                                {row.server.primary_finding}
+                              </div>
+                            </div>
+                            <div style={{ marginBottom: 12 }}>
+                              <div style={{ color: C.dim, fontSize: 11, fontWeight: 600, letterSpacing: 0.8, marginBottom: 4 }}>
+                                TINDAKAN
+                              </div>
+                              <div
+                                style={{
+                                  color: row.server.risk_visual === "red" ? C.red : C.white,
+                                  fontSize: 14,
+                                  fontWeight: 600,
+                                }}
+                              >
+                                {row.server.primary_action}
+                              </div>
+                            </div>
+                          </>
+                        )}
+
+                        {/* Clinical summary — full report text */}
+                        <div>
+                          <div style={{ color: C.dim, fontSize: 11, fontWeight: 600, letterSpacing: 0.8, marginBottom: 6 }}>
+                            RINGKASAN KLINIS
+                          </div>
+                          <pre
+                            style={{
+                              color: C.white,
+                              fontSize: 13,
+                              lineHeight: 1.55,
+                              whiteSpace: "pre-wrap",
+                              fontFamily: "inherit",
+                              margin: 0,
+                              padding: 12,
+                              background: "rgba(0,0,0,0.25)",
+                              border: `1px solid ${C.border}`,
+                              borderRadius: 8,
+                              maxHeight: 360,
+                              overflowY: "auto",
+                            }}
+                          >
+                            {row.kind !== "server"
+                              ? row.local.reportText
+                              : "Detail klinis akan tampil setelah sinkronisasi."}
+                          </pre>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <div style={{ display: "flex", gap: 8, marginBottom: 4 }}>
-                    <span style={{
-                      fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 6,
-                      background: `${moduleColor(c.moduleType)}20`,
-                      color: moduleColor(c.moduleType),
-                    }}>
-                      {moduleLabel(c.moduleType)}
-                    </span>
-                    <span style={{ color: C.dim, fontSize: 12 }}>
-                      {formatAge(c.ageMonths, c.ageDays)}
-                    </span>
-                  </div>
-                  <div style={{ color: C.dimmer, fontSize: 12 }}>
-                    {new Date(c.createdAt).toLocaleDateString("id-ID", {
-                      day: "numeric", month: "short", year: "numeric",
-                      hour: "2-digit", minute: "2-digit"
-                    })}
-                    {" · "}
-                    <span style={{ color: c.syncStatus === "synced" ? C.green : C.yellow }}>
-                      {c.syncStatus === "synced" ? "✓ Tersinkron" : "⏳ Belum sinkron"}
-                    </span>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         )}
