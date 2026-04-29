@@ -400,18 +400,12 @@ async function showHistory() {
                 const dateIso =
                   row.kind === "server" ? row.server.created_at : row.local.createdAt;
 
-                const syncStatusText =
-                  row.kind === "server" || (row.kind === "merged" || row.kind === "local"
-                    ? row.local.syncStatus === "synced"
-                    : false)
-                    ? "✓ Tersinkron"
-                    : "⏳ Belum sinkron";
+                const isSynced =
+                  row.kind === "server" || row.local.syncStatus === "synced";
+                const syncStatusText = isSynced ? "✓ Tersinkron" : "⏳ Belum sinkron";
 
-             const syncStatusColor =
-                  row.kind === "server" || row.local.syncStatus === "synced"
-                    ? C.green
-                    : C.yellow;
-
+             const syncStatusColor = isSynced ? C.green : C.yellow;
+                
                 // Risk indicator — server-derived if available, else local riskLevel
                 const riskLabel =
                   row.kind === "server" || row.kind === "merged"
