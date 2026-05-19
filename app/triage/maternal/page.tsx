@@ -16,12 +16,12 @@ const C = {
 };
 
 type Step =
-  | "name" | "gestasi" | "perdarahan" | "nyeri_perut"
+  | "name" | "gestasi" | "lila" | "perdarahan" | "nyeri_perut"
   | "sakit_kepala" | "demam" | "muntah" | "gerak_bayi"
   | "sesak" | "bengkak" | "keputihan" | "td" | "result";
 
 const emptyInput: MaternalInput = {
-  gestasi_weeks: null, perdarahan: false, nyeri_perut: false,
+  gestasi_weeks: null, lila_cm: null, perdarahan: false, nyeri_perut: false,
   sakit_kepala_kabur: false, demam: false, muntah_hebat: false,
   gerak_bayi_kurang: null, sesak_jantung: false,
   bengkak_mendadak: false, keputihan_abnormal: false,
@@ -67,7 +67,10 @@ export default function MaternalTriagePage() {
       ageMonths: null,
       ageDays: null,
       gender: 'female',
-      payload: { ...finalInput },
+      payload: {
+        ...finalInput,
+        kekStatus: engineResult.kekStatus,
+      },
       riskLevel: engineResult.riskLevel,
       reportText: engineResult.reportText,
       referNow: engineResult.referNow,
@@ -79,7 +82,6 @@ export default function MaternalTriagePage() {
     setResult(queued);
     setStep("result");
 
-    // Attempt immediate sync if online
     if (navigator.onLine) {
       syncPendingCases().then(({ synced: s }) => {
         if (s > 0) getPendingCount().then(setPendingCount);
@@ -156,10 +158,66 @@ export default function MaternalTriagePage() {
                 const weeks = isNaN(val) || val < 0 ? null : Math.min(val, 45);
                 setInput(prev => ({ ...prev, gestasi_weeks: weeks }));
                 setTextInput(""); setError("");
+                setStep("lila");
+              }}
+              accent={C.accent}
+            />
+            {error && <Err msg={error} />}
+          </QCard>
+        )}
+
+        {/* ── LILA (Maternal MUAC) ── */}
+        {step === "lila" && (
+          <QCard
+            title="Lingkar Lengan Atas / LILA ibu (cm)?"
+            hint="Ukur di lengan kiri atas, tengah antara bahu dan siku. Di bawah 23,5 cm = KEK (Kurang Energi Kronik). Ketik SKIP jika tidak ada pita LILA."
+            accent={C.accent}
+          >
+            <TInput
+              placeholder="Contoh: 24.5 atau SKIP"
+              value={textInput}
+              onChange={setTextInput}
+              onSubmit={() => {
+                const val = textInput.trim().toUpperCase();
+                if (val === "SKIP" || val === "" || val === "S") {
+                  setInput(prev => ({ ...prev, lila_cm: null }));
+                  setTextInput(""); setError("");
+                  setStep("perdarahan");
+                  return;
+                }
+                const num = parseFloat(val.replace(",", "."));
+                if (isNaN(num) || num < 15 || num > 40) {
+                  setError("Masukkan LILA yang valid (15–40 cm) atau ketik SKIP.");
+                  return;
+                }
+                setInput(prev => ({ ...prev, lila_cm: num }));
+                setTextInput(""); setError("");
                 setStep("perdarahan");
               }}
               accent={C.accent}
             />
+            {textInput && !isNaN(parseFloat(textInput.replace(",", "."))) && (
+              <div style={{
+                marginTop: 8, padding: 10, borderRadius: 8, fontSize: 13, textAlign: "center",
+                background: parseFloat(textInput.replace(",", ".")) < 23.5
+                  ? "rgba(255,107,107,0.15)" : "rgba(2,195,154,0.15)",
+                color: parseFloat(textInput.replace(",", ".")) < 23.5
+                  ? C.red : C.green,
+              }}>
+                {parseFloat(textInput.replace(",", ".")) < 23.5
+                  ? "⚠️ Di bawah 23,5 cm — risiko KEK"
+                  : "✓ Normal (≥ 23,5 cm)"}
+              </div>
+            )}
+            <button onClick={() => {
+              setInput(prev => ({ ...prev, lila_cm: null }));
+              setTextInput(""); setError("");
+              setStep("perdarahan");
+            }} style={{
+              width: "100%", padding: 12, borderRadius: 10, marginTop: 12,
+              background: "transparent", border: `1px solid ${C.border}`,
+              color: C.dim, fontSize: 14, cursor: "pointer",
+            }}>SKIP — tidak ada pita LILA</button>
             {error && <Err msg={error} />}
           </QCard>
         )}
@@ -169,7 +227,6 @@ export default function MaternalTriagePage() {
           <QCard title="Ada perdarahan dari jalan lahir?" accent={C.accent}>
             <YNButtons
               onYes={() => {
-                // Hard exit — perdarahan is always DARURAT
                 const updated = { ...input, perdarahan: true };
                 setInput(updated);
                 finish(updated);
@@ -248,7 +305,7 @@ export default function MaternalTriagePage() {
             <ChoiceBtn label="🚨 Tidak terasa sama sekali" sub="Tidak ada gerakan" onClick={() => {
               const updated = { ...input, gerak_bayi_kurang: true };
               setInput(updated);
-              finish(updated); // immediate DARURAT
+              finish(updated);
             }} accent={C.accent} />
           </QCard>
         )}
