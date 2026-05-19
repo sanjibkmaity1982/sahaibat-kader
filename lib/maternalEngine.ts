@@ -1,7 +1,8 @@
 // lib/maternalEngine.ts
 // Offline maternal triage engine for PWA — KMS Permenkes 2/2020.
 // UPDATED: LILA/KEK — Kemenkes 3d.
-// UPDATED: Isi Piringku maternal counselling — Kemenkes 3b.
+// UPDATED: Isi Piringku — Kemenkes 3b.
+// UPDATED: TTD adherence — Kemenkes 3e.
 // Deterministic, zero AI, zero network.
 
 import { generateIsiPiringku } from './counselling/isiPiringku';
@@ -18,6 +19,8 @@ export interface MaternalInput {
   sesak_jantung: boolean;
   bengkak_mendadak: boolean;
   keputihan_abnormal: boolean;
+  ttd_adherence: '1' | '2' | '3' | null;  // 1=rutin, 2=kadang, 3=tidak — Kemenkes 3e
+  ttd_side_effects: '1' | '2' | '3' | null; // 1=mual, 2=konstipasi, 3=tidak ada
   td_sys: number | null;
   td_dia: number | null;
 }
@@ -174,6 +177,39 @@ export function runMaternalTriage(
   if ((gestasi ?? 0) >= 20 && risk !== 'darurat') {
     lines.push('');
     lines.push('👶 Pantau gerakan bayi: minimal 10 kali dalam 12 jam.');
+  }
+
+  // ── TTD adherence section ───────────────────────────────────
+  if (input.ttd_adherence) {
+    lines.push('');
+    lines.push('💊 TABLET TAMBAH DARAH (TTD)');
+    if (input.ttd_adherence === '1') {
+      lines.push('✅ Ibu rutin minum TTD — pertahankan!');
+    } else if (input.ttd_adherence === '2') {
+      lines.push('⚠️ Ibu kadang-kadang minum TTD — perlu ditingkatkan');
+      lines.push('• TTD WAJIB diminum setiap hari selama hamil');
+      lines.push('• Jika lupa, minum segera saat ingat');
+    } else {
+      lines.push('🔴 Ibu TIDAK minum TTD — risiko anemia tinggi!');
+      lines.push('• TTD WAJIB diminum setiap hari selama hamil');
+      lines.push('• Minta TTD GRATIS di Puskesmas/Posyandu');
+      lines.push('• Anemia saat hamil berbahaya bagi ibu dan bayi');
+    }
+
+    // Side effect counselling
+    if (input.ttd_side_effects === '1') {
+      lines.push('');
+      lines.push('💡 Tips mengatasi mual setelah minum TTD:');
+      lines.push('• Minum TTD sebelum tidur malam (bukan pagi)');
+      lines.push('• Minum bersama air jeruk (vitamin C)');
+      lines.push('• Jangan minum TTD bersamaan teh, kopi, atau susu');
+    } else if (input.ttd_side_effects === '2') {
+      lines.push('');
+      lines.push('💡 Tips mengatasi sembelit setelah minum TTD:');
+      lines.push('• Minum air putih lebih banyak (8-10 gelas/hari)');
+      lines.push('• Makan sayur dan buah setiap hari (pepaya sangat membantu)');
+      lines.push('• Tetap aktif bergerak — jalan kaki ringan');
+    }
   }
 
   // ── Isi Piringku maternal nutrition counselling ──────────────
