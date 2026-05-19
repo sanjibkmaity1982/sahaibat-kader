@@ -2,6 +2,7 @@
 // Browser-safe offline WHO growth engine for SahAIbat Kader PWA.
 // Now uses @sahaibat/growth-engine as single source of truth.
 // UPDATED: Feature 1 (velocity engine) + Feature 2 (CMAM flag) added.
+// UPDATED: Head circumference (lingkar kepala) added for Kemenkes 2c.
 // All WHO classification logic unchanged — zero AI cost, fully offline.
 
 import {
@@ -26,6 +27,7 @@ export interface OfflineTriageInput {
   weightKg: number;
   heightCm: number;
   muacCm: number | null;
+  headCircCm: number | null;       // Lingkar kepala — Kemenkes competency 2c
   ageMonths: number;
   gender: 'male' | 'female';
   feedingFreq: '1' | '2' | '3';
@@ -34,14 +36,12 @@ export interface OfflineTriageInput {
   chwName?: string;
 
   // ── Feature 1: previous visit data for velocity (optional) ──
-  // Populated from offlineStore when child has prior visits
   previousVisit?: {
     weight_kg: number;
     severity: string;
     visit_date: string;
   } | null;
 
-  // Consecutive declining visits count from child record
   consecutiveDeclines?: number;
 }
 
@@ -51,6 +51,7 @@ export interface OfflineTriageResult {
   laz: WHOCategory;
   wlz: WHOCategory;
   muacCat: 'sam' | 'mam' | 'normal';
+  headCircFlag: 'micro' | 'macro' | 'normal' | 'not_measured';
   isSevere: boolean;
   isModerate: boolean;
   reportText: string;
@@ -62,9 +63,82 @@ export interface OfflineTriageResult {
   velocityMessage: string;
 
   // ── Feature 2: CMAM ─────────────────────────────────────────
-  // true = show CMAM confirmation question after result screen
-  // One extra tap — only for SAM cases
   cmamConfirmNeeded: boolean;
+}
+
+// ── Head circumference classification (simplified WHO reference) ──────────
+// Uses approximate median ± 2SD boundaries by age and gender.
+// Source: WHO Child Growth Standards — Head circumference-for-age tables.
+// Returns 'micro' (<-2SD), 'macro' (>+2SD), or 'normal'.
+function classifyHeadCirc(
+  hcCm: number,
+  ageMonths: number,
+  gender: 'male' | 'female'
+): 'micro' | 'macro' | 'normal' {
+  // Approximate -2SD and +2SD values for key age points (cm)
+  // Interpolated linearly between points for simplicity.
+  const refs: Record<string, { low: number; high: number }[]> = {
+    male: [
+      // [age 0, 1, 2, 3, 6, 9, 12, 18, 24, 36, 48, 60]
+      { low: 31.9, high: 37.0 },  // 0
+      { low: 33.8, high: 38.8 },  // 1
+      { low: 35.6, high: 40.6 },  // 2
+      { low: 37.0, high: 42.0 },  // 3
+      { low: 39.7, high: 44.5 },  // 6
+      { low: 41.2, high: 46.3 },  // 9
+      { low: 42.3, high: 47.5 },  // 12
+      { low: 43.5, high: 49.0 },  // 18
+      { low: 44.4, high: 49.9 },  // 24
+      { low: 45.5, high: 51.3 },  // 36
+      { low: 46.3, high: 52.0 },  // 48
+      { low: 46.7, high: 52.5 },  // 60
+    ],
+    female: [
+      { low: 31.5, high: 36.2 },  // 0
+      { low: 33.0, high: 37.9 },  // 1
+      { low: 34.6, high: 39.6 },  // 2
+      { low: 35.9, high: 40.9 },  // 3
+      { low: 38.3, high: 43.4 },  // 6
+      { low: 39.8, high: 45.2 },  // 9
+      { low: 40.8, high: 46.4 },  // 12
+      { low: 42.1, high: 47.8 },  // 18
+      { low: 43.0, high: 48.7 },  // 24
+      { low: 44.2, high: 50.1 },  // 36
+      { low: 45.0, high: 50.8 },  // 48
+      { low: 45.4, high: 51.2 },  // 60
+    ],
+  };
+
+  const agePoints = [0, 1, 2, 3, 6, 9, 12, 18, 24, 36, 48, 60];
+  const genderRefs = refs[gender];
+
+  // Find the two bracketing age points
+  let lowerIdx = 0;
+  for (let i = 0; i < agePoints.length - 1; i++) {
+    if (ageMonths >= agePoints[i]) lowerIdx = i;
+  }
+  const upperIdx = Math.min(lowerIdx + 1, agePoints.length - 1);
+
+  // Linear interpolation
+  const ageLow = agePoints[lowerIdx];
+  const ageHigh = agePoints[upperIdx];
+  const fraction = ageHigh === ageLow ? 0 : (ageMonths - ageLow) / (ageHigh - ageLow);
+
+  const lowThreshold = genderRefs[lowerIdx].low + fraction * (genderRefs[upperIdx].low - genderRefs[lowerIdx].low);
+  const highThreshold = genderRefs[lowerIdx].high + fraction * (genderRefs[upperIdx].high - genderRefs[lowerIdx].high);
+
+  if (hcCm < lowThreshold) return 'micro';
+  if (hcCm > highThreshold) return 'macro';
+  return 'normal';
+}
+
+function headCircLabel(flag: 'micro' | 'macro' | 'normal' | 'not_measured'): string {
+  switch (flag) {
+    case 'micro': return '🔴 Lingkar kepala: Di bawah normal (mikrosefali) — RUJUK';
+    case 'macro': return '🟡 Lingkar kepala: Di atas normal (makrosefali) — periksa lebih lanjut';
+    case 'normal': return '🟢 Lingkar kepala: Normal';
+    case 'not_measured': return '⚪ Lingkar kepala: Tidak diukur';
+  }
 }
 
 export function runGrowthTriage(input: OfflineTriageInput): OfflineTriageResult {
@@ -79,6 +153,12 @@ export function runGrowthTriage(input: OfflineTriageInput): OfflineTriageResult 
   const wlz = result?.wlz ?? 'normal';
   const muacCat = input.muacCm ? interpretMUAC(input.muacCm, input.ageMonths) : 'normal';
 
+  // ── Head circumference classification ──
+  const headCircFlag: 'micro' | 'macro' | 'normal' | 'not_measured' =
+    input.headCircCm != null
+      ? classifyHeadCirc(input.headCircCm, input.ageMonths, input.gender)
+      : 'not_measured';
+
   const isSevere = muacCat === 'sam' ||
     waz === 'severely_underweight' ||
     laz === 'severely_stunted' ||
@@ -92,7 +172,7 @@ export function runGrowthTriage(input: OfflineTriageInput): OfflineTriageResult 
   );
 
   const riskLevel = isSevere ? 'HIGH' : isModerate ? 'MEDIUM' : 'LOW';
-  const referNow = isSevere;
+  const referNow = isSevere || headCircFlag === 'micro';
 
   const followUpDays = isSevere ? 0
     : muacCat === 'mam' ? 7
@@ -111,7 +191,6 @@ export function runGrowthTriage(input: OfflineTriageInput): OfflineTriageResult 
   const velocityMessage = buildVelocitySection(velocityResult);
 
   // ── Feature 2: CMAM flag (deterministic, no extra Kader work) ─
-  // Only triggers the confirmation question for SAM cases
   const cmamConfirmNeeded = shouldStartCmam(
     input.muacCm,
     wlz,
@@ -135,6 +214,7 @@ export function runGrowthTriage(input: OfflineTriageInput): OfflineTriageResult 
     `Berat badan: ${input.weightKg} kg`,
     `Tinggi/panjang: ${input.heightCm} cm`,
     `LILA: ${input.muacCm ? input.muacCm + ' cm' : '(tidak diukur)'}`,
+    `Lingkar kepala: ${input.headCircCm ? input.headCircCm + ' cm' : '(tidak diukur)'}`,
     '',
     '🔍 PENILAIAN WHO',
     `${whoEmoji(waz)} Berat/Usia (BB/U): ${whoLabel(waz, 'id')}`,
@@ -143,17 +223,25 @@ export function runGrowthTriage(input: OfflineTriageInput): OfflineTriageResult 
     muacCat === 'sam' ? '🔴 LILA: Gizi buruk (SAM) — RUJUK SEGERA'
       : muacCat === 'mam' ? '🟡 LILA: Gizi kurang (MAM) — pantau ketat'
       : input.muacCm ? '🟢 LILA: Normal' : '⚪ LILA: Tidak diukur',
+    headCircLabel(headCircFlag),
     '',
     '✅ TINDAK LANJUT',
   ];
 
   if (referNow) {
     lines.push('• RUJUK ke Puskesmas hari ini');
+    if (headCircFlag === 'micro') {
+      lines.push('• Lingkar kepala di bawah normal — perlu pemeriksaan lanjutan');
+    }
   } else if (isModerate) {
     lines.push('• Pantau berat badan setiap 2 minggu');
     lines.push('• Berikan makanan tambahan (PMT)');
   } else {
     lines.push('• Tumbuh kembang baik — lanjutkan pola makan saat ini');
+  }
+
+  if (headCircFlag === 'macro') {
+    lines.push('• Lingkar kepala di atas normal — periksa di Puskesmas');
   }
 
   if (input.milestoneScore === '3' || input.milestoneScore === '2') {
@@ -176,7 +264,6 @@ export function runGrowthTriage(input: OfflineTriageInput): OfflineTriageResult 
   }
 
   // ── Feature 1: Velocity section appended to report ───────────
-  // Only shows when there is something meaningful (not first_visit or stable)
   if (velocityMessage && velocityMessage.trim().length > 0) {
     lines.push('');
     lines.push(velocityMessage);
@@ -188,15 +275,14 @@ export function runGrowthTriage(input: OfflineTriageInput): OfflineTriageResult 
     riskLevel,
     waz, laz, wlz,
     muacCat,
+    headCircFlag,
     isSevere,
     isModerate,
     referNow,
     followUpDays,
     reportText: lines.join('\n'),
-    // Feature 1
     velocityFlag: velocityResult.flag,
     velocityMessage,
-    // Feature 2
     cmamConfirmNeeded,
   };
 }
