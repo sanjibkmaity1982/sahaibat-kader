@@ -8,29 +8,30 @@ const withPWA = require("@ducanh2912/next-pwa").default({
   fallbackRoutes: {
     document: "/offline",
   },
-workboxOptions: {
-  navigationPreload: true,   // ADD THIS
-  additionalManifestEntries: [
-    { url: "/", revision: "v5" },           // v4 → v5
-    { url: "/triage", revision: "v5" },
-    { url: "/triage/child", revision: "v5" },
-    { url: "/triage/maternal", revision: "v5" },
-    { url: "/triage/neonatal", revision: "v5" },
-    { url: "/triage/postpartum", revision: "v5" },
-    { url: "/offline", revision: "v5" },
-  ],
-  navigateFallbackDenylist: [/^\/api\//],
-  runtimeCaching: [
-    {
-      urlPattern: /^\/api\/.*/,
-      handler: "NetworkOnly",
-    },
+  workboxOptions: {
+    navigationPreload: true,
+    additionalManifestEntries: [
+      { url: "/", revision: "v6" },
+      { url: "/triage", revision: "v6" },
+      { url: "/triage/child", revision: "v6" },
+      { url: "/triage/maternal", revision: "v6" },
+      { url: "/triage/neonatal", revision: "v6" },
+      { url: "/triage/postpartum", revision: "v6" },
+      { url: "/offline", revision: "v6" },
+    ],
+    navigateFallbackDenylist: [/^\/api\//],
+    runtimeCaching: [
+      // API routes — NEVER cache
+      {
+        urlPattern: /^\/api\/.*/,
+        handler: "NetworkOnly",
+      },
       // Pages
       {
         urlPattern: /^\/$|^\/triage(\/.*)?$|^\/offline$|^\/privacy$/,
         handler: "StaleWhileRevalidate",
         options: {
-          cacheName: "sahaibat-pages-v4",
+          cacheName: "sahaibat-pages-v5",
           expiration: {
             maxEntries: 50,
             maxAgeSeconds: 7 * 24 * 60 * 60,
@@ -42,7 +43,7 @@ workboxOptions: {
         urlPattern: /\.(?:js|css|woff2?|png|jpg|svg|ico)$/,
         handler: "CacheFirst",
         options: {
-          cacheName: "sahaibat-assets-v4",
+          cacheName: "sahaibat-assets-v5",
           expiration: {
             maxEntries: 200,
             maxAgeSeconds: 30 * 24 * 60 * 60,
@@ -54,7 +55,7 @@ workboxOptions: {
         urlPattern: /\/_next\/static\/.*/,
         handler: "CacheFirst",
         options: {
-          cacheName: "sahaibat-next-static-v4",
+          cacheName: "sahaibat-next-static-v5",
           expiration: {
             maxEntries: 200,
             maxAgeSeconds: 30 * 24 * 60 * 60,
@@ -66,7 +67,7 @@ workboxOptions: {
         urlPattern: /\/_next\/image\?.*/,
         handler: "StaleWhileRevalidate",
         options: {
-          cacheName: "sahaibat-next-image-v4",
+          cacheName: "sahaibat-next-image-v5",
           expiration: {
             maxEntries: 50,
             maxAgeSeconds: 7 * 24 * 60 * 60,
