@@ -1,59 +1,33 @@
 "use client";
 
-// app/triage/child/page.tsx
-// Production v4 — added lingkar kepala (head circumference) for Kemenkes 2c
-
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { getIdentity } from "@/lib/auth";
-import { runGrowthTriage } from "@/lib/offlineEngine";
+import { getIdentity, clearIdentity } from "@/lib/auth";
 import {
-  saveCase, getPendingCount, generateLocalId, type QueuedCase,
+  getPendingCount,
+  getAllCases,
+  type QueuedCase,
+  moduleColor,
+  moduleLabel,
+  getPatientName,
+  formatAge,
 } from "@/lib/offlineStore";
-import { syncPendingCases } from "@/lib/syncClient";
-
-type Step =
-  | "home" | "child_name" | "nik" | "age_method" | "age_dob" | "age_months" | "age_years"
-  | "gender" | "weight" | "height" | "muac" | "headcirc" | "feeding" | "milestone" | "result";
-
-interface TriageState {
-  childName: string;
-  nik: string;
-  dob: string | null;
-  ageMonths: number | null;
-  ageSource: string;
-  gender: "male" | "female" | null;
-  weightKg: number | null;
-  heightCm: number | null;
-  muacCm: number | null;
-  headCircCm: number | null;
-  feedingFreq: "1" | "2" | "3" | null;
-  milestoneScore: "1" | "2" | "3" | null;
-}
-
-const emptyState: TriageState = {
-  childName: "", nik: "", dob: null, ageMonths: null,
-  ageSource: "manual_months", gender: null,
-  weightKg: null, heightCm: null, muacCm: null,
-  headCircCm: null,
-  feedingFreq: null, milestoneScore: null,
-};
 
 const C = {
-  bg: "#0D1F1C", card: "rgba(255,255,255,0.05)",
-  border: "rgba(2,195,154,0.25)", teal: "#02C39A",
-  white: "#FFFFFF", dim: "rgba(255,255,255,0.5)",
-  dimmer: "rgba(255,255,255,0.25)", red: "#FF6B6B",
-  yellow: "#FFD166", green: "#02C39A",
+  bg: "#0D1F1C",
+  card: "rgba(255,255,255,0.05)",
+  border: "rgba(2,195,154,0.25)",
+  teal: "#02C39A",
+  white: "#FFFFFF",
+  dim: "rgba(255,255,255,0.5)",
+  dimmer: "rgba(255,255,255,0.25)",
+  red: "#FF6B6B",
+  yellow: "#FFD166",
+  green: "#02C39A",
+  pink: "#E91E8C",
+  purple: "#9C27B0",
+  orange: "#FF9800",
 };
-
-function dobToMonths(dob: string): number {
-  const birth = new Date(dob);
-  const now = new Date();
-  const months = (now.getFullYear() - birth.getFullYear()) * 12 +
-    (now.getMonth() - birth.getMonth());
-  return Math.max(0, Math.min(60, months));
-}
 
 function riskColor(level: string) {
   if (level === "HIGH") return C.red;
@@ -61,470 +35,308 @@ function riskColor(level: string) {
   return C.green;
 }
 
-function riskLabel(level: string) {
-  if (level === "HIGH") return "🔴 RISIKO TINGGI — Rujuk Sekarang";
-  if (level === "MEDIUM") return "🟡 PERLU PERHATIAN";
-  return "🟢 TUMBUH KEMBANG BAIK";
-}
+type View = "home" | "history";
 
-export default function ChildTriagePage() {
+export default function TriagePage() {
   const router = useRouter();
   const [identity, setIdentity] = useState<{ name: string; profileId: string; ngoId: string } | null>(null);
-  const [step, setStep] = useState<Step>("home");
-  const [triage, setTriage] = useState<TriageState>(emptyState);
-  const [input, setInput] = useState("");
-  const [inputB, setInputB] = useState("");
-  const [error, setError] = useState("");
-  const [result, setResult] = useState<QueuedCase | null>(null);
   const [pendingCount, setPendingCount] = useState(0);
-  const [synced, setSynced] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
+  const [view, setView] = useState<View>("home");
+  const [history, setHistory] = useState<QueuedCase[]>([]);
+
+  // ── Refresh pending count from IndexedDB ──────────────────────────────────
+  const refreshPending = useCallback(async () => {
+    const count = await getPendingCount();
+    setPendingCount(count);
+  }, []);
+
+  // ── Run sync then always refresh count regardless of result ───────────────
+  const runSync = useCallback(async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    try {
+      const { syncPendingCases } = await import("@/lib/syncClient");
+      await syncPendingCases();
+    } catch {
+      // Silently ignore sync errors — will retry on next online event
+    } finally {
+      // ALWAYS clear syncing state and refresh count, even on error
+      setIsSyncing(false);
+      await refreshPending();
+    }
+  }, [isSyncing, refreshPending]);
 
   useEffect(() => {
     const id = getIdentity();
     if (!id) { router.replace("/"); return; }
     setIdentity(id);
-    setIsOnline(navigator.onLine);
+
+    const online = navigator.onLine;
+    setIsOnline(online);
+
+    // Initial pending count
+    refreshPending();
+
+    // If already online on mount, run sync after short delay
+    if (online) {
+      const t = setTimeout(() => runSync(), 2000);
+      return () => clearTimeout(t);
+    }
+  }, [router, refreshPending]); // runSync intentionally excluded from deps here
+
+  useEffect(() => {
     const handleOnline = () => {
       setIsOnline(true);
-      syncPendingCases().then(({ synced: s }) => {
-        if (s > 0) getPendingCount().then(setPendingCount);
-      });
+      runSync();
     };
+    const handleOffline = () => setIsOnline(false);
+
     window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", () => setIsOnline(false));
-    getPendingCount().then(setPendingCount);
+    window.addEventListener("offline", handleOffline);
+
     return () => {
       window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", () => setIsOnline(false));
+      window.removeEventListener("offline", handleOffline);
     };
-  }, [router]);
+  }, [runSync]);
 
-  function startTriage() {
-    setTriage(emptyState); setInput(""); setInputB("");
-    setError(""); setSynced(false); setStep("child_name");
+  async function showHistory() {
+    const localCases = await getAllCases();
+    setHistory(localCases);
+    setView("history");
   }
 
-  function next(updates: Partial<TriageState>, nextStep: Step) {
-    setTriage(prev => ({ ...prev, ...updates }));
-    setInput(""); setInputB(""); setError(""); setStep(nextStep);
-  }
-
-  function submitName() {
-    if (!input.trim()) { setError("Masukkan nama anak."); return; }
-    next({ childName: input.trim() }, "nik");
-  }
-
-  function submitNik() {
-    const val = input.trim().replace(/\s/g, "");
-    const upper = val.toUpperCase();
-    if (val === "" || upper === "SKIP" || upper === "S" || upper === "LEWATI") {
-      next({ nik: "" }, "age_method");
-      return;
-    }
-    if (!/^\d{16}$/.test(val)) {
-      setError("NIK harus 16 digit angka. Tekan 'Lewati' jika belum ada NIK.");
-      return;
-    }
-    next({ nik: val }, "age_method");
-  }
-
-  function submitDob() {
-    if (!input) { setError("Pilih tanggal lahir."); return; }
-    const dob = input;
-    const birth = new Date(dob);
-    const now = new Date();
-    if (birth > now) { setError("Tanggal lahir tidak boleh di masa depan."); return; }
-    const months = dobToMonths(dob);
-    if (months > 60) { setError("Anak sudah lebih dari 60 bulan — di luar rentang Posyandu."); return; }
-    next({ dob, ageMonths: months, ageSource: "dob_exact" }, "gender");
-  }
-
-  function submitAgeMonths() {
-    const val = parseInt(input.trim());
-    if (isNaN(val) || val < 0 || val > 60) { setError("Masukkan usia dalam bulan (0–60)."); return; }
-    next({ ageMonths: val, ageSource: "manual_months", dob: null }, "gender");
-  }
-
-  function submitAgeYears() {
-    const years = parseInt(input.trim() || "0");
-    const months = parseInt(inputB.trim() || "0");
-    if (isNaN(years) || isNaN(months)) { setError("Masukkan angka yang valid."); return; }
-    const total = years * 12 + months;
-    if (total < 0 || total > 60) { setError("Total usia harus 0–60 bulan."); return; }
-    next({ ageMonths: total, ageSource: "manual_years", dob: null }, "gender");
-  }
-
-  function submitWeight() {
-    const val = parseFloat(input.trim().replace(",", "."));
-    if (isNaN(val) || val < 1 || val > 30) { setError("Masukkan berat badan yang valid (kg). Contoh: 8.5"); return; }
-    next({ weightKg: val }, "height");
-  }
-
-  function submitHeight() {
-    const val = parseFloat(input.trim().replace(",", "."));
-    if (isNaN(val) || val < 40 || val > 130) { setError("Masukkan tinggi badan yang valid (cm). Contoh: 72.5"); return; }
-    next({ heightCm: val }, "muac");
-  }
-
-  function submitMUAC() {
-    if (input.trim().toLowerCase() === "skip" || input.trim() === "") {
-      next({ muacCm: null }, "headcirc"); return;
-    }
-    const val = parseFloat(input.trim().replace(",", "."));
-    if (isNaN(val) || val < 6 || val > 25) { setError("Masukkan LILA yang valid (cm) atau ketik SKIP."); return; }
-    next({ muacCm: val }, "headcirc");
-  }
-
-  function submitHeadCirc() {
-    if (input.trim().toLowerCase() === "skip" || input.trim() === "") {
-      next({ headCircCm: null }, "feeding"); return;
-    }
-    const val = parseFloat(input.trim().replace(",", "."));
-    if (isNaN(val) || val < 25 || val > 60) { setError("Masukkan lingkar kepala yang valid (cm) atau ketik SKIP."); return; }
-    next({ headCircCm: val }, "feeding");
-  }
-
-  async function finishTriage(milestoneScore: "1" | "2" | "3") {
-    const t = { ...triage, milestoneScore };
-    if (t.ageMonths === null || !t.gender || !t.weightKg || !t.heightCm || !t.feedingFreq) return;
-
-    const engineResult = runGrowthTriage({
-      weightKg: t.weightKg,
-      heightCm: t.heightCm,
-      muacCm: t.muacCm,
-      headCircCm: t.headCircCm,
-      ageMonths: t.ageMonths,
-      gender: t.gender,
-      feedingFreq: t.feedingFreq,
-      milestoneScore,
-      childName: t.childName,
-      chwName: identity?.name,
-    });
-
-    const queued: QueuedCase = {
-      localId: generateLocalId(),
-      profileId: identity?.profileId ?? "",
-      ngoId: identity?.ngoId ?? "",
-      moduleType: "child",
-      patientName: t.childName,
-      nik: t.nik || undefined,
-      dob: t.dob,
-      ageMonths: t.ageMonths,
-      ageDays: null,
-      gender: t.gender,
-      weightKg: t.weightKg,
-      heightCm: t.heightCm,
-      muacCm: t.muacCm,
-      waz: engineResult.waz,
-      laz: engineResult.laz,
-      wlz: engineResult.wlz,
-      muacCat: engineResult.muacCat,
-      feedingFreq: t.feedingFreq,
-      milestoneScore,
-      payload: {
-        headCircCm: t.headCircCm,
-        headCircFlag: engineResult.headCircFlag,
-      },
-      riskLevel: engineResult.riskLevel,
-      reportText: engineResult.reportText,
-      referNow: engineResult.referNow,
-      followUpDays: engineResult.followUpDays,
-      createdAt: new Date().toISOString(),
-      syncStatus: "pending",
-    };
-
-    await saveCase(queued);
-    const newPending = await getPendingCount();
-    setPendingCount(newPending);
-    setResult(queued);
-    setSynced(false);
-    setStep("result");
-
-    if (navigator.onLine) {
-      syncPendingCases().then(({ synced: s }) => {
-        if (s > 0) {
-          getPendingCount().then(setPendingCount);
-          setSynced(true);
-        }
-      });
-    }
+  function handleLogout() {
+    clearIdentity();
+    router.replace("/");
   }
 
   if (!identity) return null;
-
-  const ageDisplay = triage.ageMonths !== null
-    ? triage.ageMonths < 12
-      ? `${triage.ageMonths} bulan`
-      : `${Math.floor(triage.ageMonths / 12)} thn ${triage.ageMonths % 12 > 0 ? triage.ageMonths % 12 + " bln" : ""}`
-    : "";
 
   return (
     <div style={{ minHeight: "100vh", background: C.bg, display: "flex", flexDirection: "column" }}>
 
       {/* Header */}
       <div style={{
-        display: "flex", alignItems: "center", gap: 12,
+        display: "flex", alignItems: "center", justifyContent: "space-between",
         padding: "16px 20px", borderBottom: `1px solid ${C.border}`,
         background: "rgba(0,0,0,0.2)",
       }}>
-        <button onClick={() => router.push("/triage")} style={{
-          background: "none", border: "none", color: C.dim, fontSize: 22, cursor: "pointer", padding: 0,
-        }}>←</button>
         <div>
-          <div style={{ color: C.teal, fontWeight: 800, fontSize: 15 }}>👶 Posyandu Anak</div>
+          <div style={{ color: C.teal, fontWeight: 800, fontSize: 16 }}>SahAIbat Kader</div>
           <div style={{ color: C.dim, fontSize: 12 }}>{identity.name}</div>
         </div>
-        {pendingCount > 0 && (
-          <div style={{ marginLeft: "auto", background: C.yellow, color: "#000", borderRadius: 12, padding: "2px 10px", fontSize: 12, fontWeight: 700 }}>
-            {pendingCount} belum sinkron
-          </div>
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          {isSyncing && (
+            <div style={{
+              background: "rgba(2,195,154,0.15)", color: C.teal,
+              borderRadius: 12, padding: "2px 10px", fontSize: 12, fontWeight: 600,
+              border: `1px solid rgba(2,195,154,0.3)`,
+            }}>
+              ↻ Sinkronisasi…
+            </div>
+          )}
+          {!isSyncing && pendingCount > 0 && (
+            <div style={{
+              background: C.yellow, color: "#000", borderRadius: 12,
+              padding: "2px 10px", fontSize: 12, fontWeight: 700,
+            }}>
+              {pendingCount} belum sinkron
+            </div>
+          )}
+          <button onClick={handleLogout} style={{
+            background: "none", border: `1px solid ${C.border}`,
+            color: C.dim, borderRadius: 8, padding: "6px 12px",
+            fontSize: 12, cursor: "pointer",
+          }}>Keluar</button>
+        </div>
       </div>
 
+      {/* Offline banner */}
       {!isOnline && (
-        <div style={{ background: "rgba(255,209,102,0.15)", borderBottom: `1px solid ${C.yellow}`, padding: "8px 20px", color: C.yellow, fontSize: 13, textAlign: "center" }}>
+        <div style={{
+          background: "rgba(255,209,102,0.15)", borderBottom: `1px solid ${C.yellow}`,
+          padding: "8px 20px", color: C.yellow, fontSize: 13, textAlign: "center",
+        }}>
           📵 Mode offline — triage tetap berjalan, data tersimpan lokal
         </div>
       )}
 
       <div style={{ flex: 1, maxWidth: 480, width: "100%", margin: "0 auto" }}>
 
-        {step === "home" && (
-          <div style={{ padding: "40px 20px" }}>
+        {/* ── HOME ── */}
+        {view === "home" && (
+          <div style={{ padding: "32px 20px" }}>
+
             <div style={{ textAlign: "center", marginBottom: 32 }}>
-              <div style={{ fontSize: 40, marginBottom: 8 }}>👶</div>
-              <h1 style={{ color: C.teal, fontSize: 22, fontWeight: 800, margin: 0 }}>Posyandu Anak</h1>
-              <p style={{ color: C.dim, fontSize: 14, marginTop: 8 }}>Tumbuh kembang balita 0–60 bulan</p>
+              <div style={{
+                width: 72, height: 72,
+                borderRadius: 20,
+                background: "linear-gradient(135deg, rgba(2,195,154,0.15), rgba(2,195,154,0.25))",
+                border: "1px solid rgba(2,195,154,0.3)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                margin: "0 auto 16px",
+                boxShadow: "0 0 24px rgba(2,195,154,0.15)",
+                overflow: "hidden",
+              }}>
+                <img
+                  src="https://app.sahaibat.com/brand/sahaibat-icon.png"
+                  alt="SahAIbat"
+                  style={{ width: 52, height: 52, objectFit: "contain" }}
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = "none";
+                  }}
+                />
+              </div>
+              <h1 style={{ color: C.white, fontSize: 22, fontWeight: 800, margin: 0 }}>
+                Selamat datang, <span style={{ color: C.teal }}>{identity.name}</span>
+              </h1>
+              <p style={{ color: C.dim, fontSize: 13, marginTop: 6 }}>
+                Pilih modul triase di bawah ini
+              </p>
             </div>
-            <button onClick={startTriage} style={{ width: "100%", padding: 18, borderRadius: 14, background: C.teal, color: C.white, fontSize: 18, fontWeight: 800, border: "none", cursor: "pointer" }}>
-              ➕ Mulai Triage Posyandu
-            </button>
+
+            {/* Module cards */}
+            <div style={{ marginBottom: 8 }}>
+              <p style={{ color: C.dimmer, fontSize: 12, fontWeight: 600, marginBottom: 12, letterSpacing: 1 }}>
+                TRIAGE ANAK
+              </p>
+              <ModuleCard
+                emoji="👶"
+                title="Posyandu Anak"
+                subtitle="Tumbuh kembang balita 0–60 bulan"
+                color={C.teal}
+                onClick={() => router.push("/triage/child")}
+              />
+            </div>
+
+            <div style={{ marginBottom: 8 }}>
+              <p style={{ color: C.dimmer, fontSize: 12, fontWeight: 600, marginBottom: 12, letterSpacing: 1, marginTop: 20 }}>
+                TRIAGE IBU
+              </p>
+              <ModuleCard
+                emoji="🤰"
+                title="Ibu Hamil"
+                subtitle="Triase antenatal — tanda bahaya kehamilan"
+                color={C.pink}
+                onClick={() => router.push("/triage/maternal")}
+              />
+              <ModuleCard
+                emoji="🌸"
+                title="Ibu Nifas"
+                subtitle="Setelah melahirkan — 0 sampai 42 hari"
+                color={C.purple}
+                onClick={() => router.push("/triage/postpartum")}
+              />
+              <ModuleCard
+                emoji="🍼"
+                title="Bayi Baru Lahir"
+                subtitle="Neonatal — 0 sampai 28 hari"
+                color={C.orange}
+                onClick={() => router.push("/triage/neonatal")}
+              />
+            </div>
+
+            {/* History + pending */}
+            <div style={{ marginTop: 24 }}>
+              <button onClick={showHistory} style={{
+                width: "100%", padding: 14, borderRadius: 12,
+                background: C.card, color: C.white,
+                fontSize: 15, fontWeight: 600,
+                border: `1.5px solid ${C.border}`, cursor: "pointer",
+              }}>
+                📋 Riwayat Kasus
+              </button>
+            </div>
+
+            {!isSyncing && pendingCount > 0 && (
+              <div style={{
+                marginTop: 16, padding: 14, borderRadius: 12,
+                background: "rgba(255,209,102,0.1)",
+                border: `1px solid ${C.yellow}`,
+              }}>
+                <p style={{ color: C.yellow, fontSize: 13, margin: 0 }}>
+                  ⏳ {pendingCount} kasus menunggu sinkronisasi.
+                  {isOnline ? " Sinkronisasi akan segera dilakukan." : " Akan sinkron saat ada sinyal."}
+                </p>
+              </div>
+            )}
+
+            {isSyncing && (
+              <div style={{
+                marginTop: 16, padding: 14, borderRadius: 12,
+                background: "rgba(2,195,154,0.08)",
+                border: `1px solid rgba(2,195,154,0.3)`,
+              }}>
+                <p style={{ color: C.teal, fontSize: 13, margin: 0 }}>
+                  ↻ Sedang menyinkronkan data ke server…
+                </p>
+              </div>
+            )}
           </div>
         )}
 
-        {step === "child_name" && (
-          <QCard question="Nama anak?">
-            <TInput placeholder="Contoh: Ahmad Fauzi" value={input} onChange={setInput} onSubmit={submitName} />
-            {error && <Err msg={error} />}
-          </QCard>
-        )}
-
-        {step === "nik" && (
-          <QCard question="NIK anak?" hint="Nomor Induk Kependudukan — 16 digit dari KTP/KIA orang tua.">
-            <TInput placeholder="16 digit NIK, atau tekan Lewati" value={input} onChange={setInput} onSubmit={submitNik} type="text" />
-            <p style={{ color: C.teal, fontSize: 12, marginTop: 4 }}>
-              ✅ Masukkan NIK jika tersedia — mencegah data ganda
-            </p>
-            <p style={{ color: C.dim, fontSize: 12, marginTop: 2 }}>
-              📝 Ketik <strong style={{ color: C.yellow }}>SKIP</strong> atau tekan tombol di bawah jika anak belum punya NIK
-            </p>
-            <button
-              onClick={() => { setInput(""); next({ nik: "" }, "age_method"); }}
-              style={{
-                width: "100%", padding: 14, marginTop: 12, borderRadius: 10,
-                background: "rgba(255,209,102,0.1)", border: `1px solid ${C.yellow}`,
-                color: C.yellow, fontSize: 14, fontWeight: 600, cursor: "pointer",
-              }}
-            >
-              Lewati — NIK belum tersedia
-            </button>
-            {error && <Err msg={error} />}
-          </QCard>
-        )}
-
-        {step === "age_method" && (
-          <QCard question="Bagaimana cara memasukkan usia anak?" hint="Pilih metode yang tersedia">
-            <CBtn label="📅 Tanggal Lahir" sub="Hitung otomatis dari tanggal lahir — paling akurat" onClick={() => setStep("age_dob")} />
-            <CBtn label="🔢 Usia dalam Bulan" sub="Contoh: 18 bulan" onClick={() => setStep("age_months")} />
-            <CBtn label="📆 Tahun & Bulan" sub="Contoh: 1 tahun 6 bulan" onClick={() => setStep("age_years")} />
-          </QCard>
-        )}
-
-        {step === "age_dob" && (
-          <QCard question="Tanggal lahir anak?" hint="Format: Hari / Bulan / Tahun">
-            <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ color: C.dim, fontSize: 11, marginBottom: 4, textAlign: "center" }}>Tanggal</div>
-                <select
-                  value={input.split("-")[2] || ""}
-                  onChange={e => {
-                    const parts = input.split("-");
-                    setInput(`${parts[0] || ""}${parts[0] ? "-" : ""}${parts[1] || ""}${parts[1] ? "-" : ""}${e.target.value}`);
-                  }}
-                  style={{ width: "100%", padding: "12px 8px", borderRadius: 10, background: "rgba(255,255,255,0.08)", border: `1.5px solid ${C.border}`, color: C.white, fontSize: 16, outline: "none" }}
-                >
-                  <option value="">--</option>
-                  {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
-                    <option key={d} value={String(d).padStart(2, "0")} style={{ background: "#0D1F1C" }}>{d}</option>
-                  ))}
-                </select>
-              </div>
-              <div style={{ flex: 2 }}>
-                <div style={{ color: C.dim, fontSize: 11, marginBottom: 4, textAlign: "center" }}>Bulan</div>
-                <select
-                  value={input.split("-")[1] || ""}
-                  onChange={e => {
-                    const parts = input.split("-");
-                    setInput(`${parts[0] || ""}${parts[0] ? "-" : ""}${e.target.value}-${parts[2] || ""}`);
-                  }}
-                  style={{ width: "100%", padding: "12px 8px", borderRadius: 10, background: "rgba(255,255,255,0.08)", border: `1.5px solid ${C.border}`, color: C.white, fontSize: 16, outline: "none" }}
-                >
-                  <option value="">--</option>
-                  {["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"].map((m, i) => (
-                    <option key={i} value={String(i + 1).padStart(2, "0")} style={{ background: "#0D1F1C" }}>{m}</option>
-                  ))}
-                </select>
-              </div>
-              <div style={{ flex: 2 }}>
-                <div style={{ color: C.dim, fontSize: 11, marginBottom: 4, textAlign: "center" }}>Tahun</div>
-                <select
-                  value={input.split("-")[0] || ""}
-                  onChange={e => {
-                    const parts = input.split("-");
-                    setInput(`${e.target.value}-${parts[1] || ""}-${parts[2] || ""}`);
-                  }}
-                  style={{ width: "100%", padding: "12px 8px", borderRadius: 10, background: "rgba(255,255,255,0.08)", border: `1.5px solid ${C.border}`, color: C.white, fontSize: 16, outline: "none" }}
-                >
-                  <option value="">----</option>
-                  {Array.from({ length: 6 }, (_, i) => new Date().getFullYear() - i).map(y => (
-                    <option key={y} value={String(y)} style={{ background: "#0D1F1C" }}>{y}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            {input.match(/^\d{4}-\d{2}-\d{2}$/) && (
-              <div style={{ color: C.teal, fontSize: 14, marginBottom: 12, textAlign: "center" }}>
-                ✓ Usia: {dobToMonths(input)} bulan
-              </div>
-            )}
-            <button
-              onClick={submitDob}
-              style={{ width: "100%", padding: 14, borderRadius: 10, background: input.match(/^\d{4}-\d{2}-\d{2}$/) ? C.teal : "rgba(2,195,154,0.3)", color: C.white, fontSize: 16, fontWeight: 700, border: "none", cursor: "pointer" }}
-            >
-              Lanjut →
-            </button>
-            <button onClick={() => setStep("age_method")} style={{ width: "100%", padding: 12, borderRadius: 10, background: "none", color: C.dim, fontSize: 14, border: "none", cursor: "pointer", marginTop: 8 }}>
-              ← Pilih metode lain
-            </button>
-            {error && <Err msg={error} />}
-          </QCard>
-        )}
-
-        {step === "age_months" && (
-          <QCard question="Usia anak (bulan)?" hint="Masukkan total usia dalam bulan. Contoh: 18">
-            <TInput placeholder="Contoh: 18" value={input} onChange={setInput} onSubmit={submitAgeMonths} type="number" />
-            <button onClick={() => setStep("age_method")} style={{ width: "100%", padding: 12, borderRadius: 10, background: "none", color: C.dim, fontSize: 14, border: "none", cursor: "pointer", marginTop: 4 }}>
-              ← Pilih metode lain
-            </button>
-            {error && <Err msg={error} />}
-          </QCard>
-        )}
-
-        {step === "age_years" && (
-          <QCard question="Usia anak (tahun & bulan)?" hint="Contoh: 1 tahun 6 bulan">
-            <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ color: C.dim, fontSize: 12, marginBottom: 6 }}>Tahun</div>
-                <input type="number" placeholder="0–5" value={input} onChange={e => setInput(e.target.value)} min={0} max={5}
-                  style={{ width: "100%", padding: "14px 12px", borderRadius: 10, background: "rgba(255,255,255,0.08)", border: `1.5px solid ${C.border}`, color: C.white, fontSize: 18, outline: "none", boxSizing: "border-box" }} />
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ color: C.dim, fontSize: 12, marginBottom: 6 }}>Bulan</div>
-                <input type="number" placeholder="0–11" value={inputB} onChange={e => setInputB(e.target.value)} min={0} max={11}
-                  style={{ width: "100%", padding: "14px 12px", borderRadius: 10, background: "rgba(255,255,255,0.08)", border: `1.5px solid ${C.border}`, color: C.white, fontSize: 18, outline: "none", boxSizing: "border-box" }} />
-              </div>
-            </div>
-            {(input || inputB) && (
-              <div style={{ color: C.teal, fontSize: 14, marginBottom: 12, textAlign: "center" }}>
-                ✓ Total: {(parseInt(input || "0") * 12) + parseInt(inputB || "0")} bulan
-              </div>
-            )}
-            <button onClick={submitAgeYears} style={{ width: "100%", padding: 14, borderRadius: 10, background: C.teal, color: C.white, fontSize: 16, fontWeight: 700, border: "none", cursor: "pointer" }}>
-              Lanjut →
-            </button>
-            <button onClick={() => setStep("age_method")} style={{ width: "100%", padding: 12, borderRadius: 10, background: "none", color: C.dim, fontSize: 14, border: "none", cursor: "pointer", marginTop: 8 }}>
-              ← Pilih metode lain
-            </button>
-            {error && <Err msg={error} />}
-          </QCard>
-        )}
-
-        {step === "gender" && (
-          <QCard question="Jenis kelamin anak?" hint={ageDisplay ? `Usia: ${ageDisplay}` : undefined}>
-            <CBtn label="👦 Laki-laki" onClick={() => next({ gender: "male" }, "weight")} />
-            <CBtn label="👧 Perempuan" onClick={() => next({ gender: "female" }, "weight")} />
-          </QCard>
-        )}
-
-        {step === "weight" && (
-          <QCard question="Berat badan anak (kg)?" hint="Contoh: 8.5 atau 8,5">
-            <TInput placeholder="Contoh: 8.5" value={input} onChange={setInput} onSubmit={submitWeight} type="decimal" />
-            {error && <Err msg={error} />}
-          </QCard>
-        )}
-
-        {step === "height" && (
-          <QCard question="Tinggi/panjang badan anak (cm)?" hint="Contoh: 72.5">
-            <TInput placeholder="Contoh: 72.5" value={input} onChange={setInput} onSubmit={submitHeight} type="decimal" />
-            {error && <Err msg={error} />}
-          </QCard>
-        )}
-
-        {step === "muac" && (
-          <QCard question="LILA anak (cm)?" hint="Lingkar Lengan Atas. Ketik SKIP jika tidak diukur.">
-            <TInput placeholder="Contoh: 13.5 atau SKIP" value={input} onChange={setInput} onSubmit={submitMUAC} />
-            {error && <Err msg={error} />}
-          </QCard>
-        )}
-
-        {step === "headcirc" && (
-          <QCard question="Lingkar kepala anak (cm)?" hint="Ukur melingkar di atas alis dan bagian paling menonjol di belakang. Ketik SKIP jika tidak diukur.">
-            <TInput placeholder="Contoh: 45.0 atau SKIP" value={input} onChange={setInput} onSubmit={submitHeadCirc} />
-            {error && <Err msg={error} />}
-          </QCard>
-        )}
-
-        {step === "feeding" && (
-          <QCard question="Frekuensi makan/menyusu dalam 24 jam terakhir?">
-            <CBtn label="1 — Kurang" sub={triage.ageMonths !== null && triage.ageMonths < 6 ? "Kurang dari 8 kali menyusu" : "Kurang dari 3 kali makan"} onClick={() => next({ feedingFreq: "1" }, "milestone")} />
-            <CBtn label="2 — Cukup" sub={triage.ageMonths !== null && triage.ageMonths < 6 ? "8–12 kali menyusu" : "3–4 kali makan"} onClick={() => next({ feedingFreq: "2" }, "milestone")} />
-            <CBtn label="3 — Baik" sub={triage.ageMonths !== null && triage.ageMonths < 6 ? "Lebih dari 12 kali" : "5 kali atau lebih"} onClick={() => next({ feedingFreq: "3" }, "milestone")} />
-          </QCard>
-        )}
-
-        {step === "milestone" && (
-          <QCard question="Perkembangan anak sesuai usia?" hint="Berdasarkan SDIDTK untuk usia ini">
-            <CBtn label="1 — Sudah semua" sub="Semua perkembangan sesuai usia" onClick={() => finishTriage("1")} />
-            <CBtn label="2 — Beberapa belum" sub="Sebagian perkembangan belum tercapai" onClick={() => finishTriage("2")} />
-            <CBtn label="3 — Banyak yang belum" sub="Banyak perkembangan belum tercapai" onClick={() => finishTriage("3")} />
-          </QCard>
-        )}
-
-        {step === "result" && result && (
+        {/* ── HISTORY (local cases only) ── */}
+        {view === "history" && (
           <div style={{ padding: "24px 20px" }}>
-            <div style={{ background: `${riskColor(result.riskLevel)}20`, border: `2px solid ${riskColor(result.riskLevel)}`, borderRadius: 14, padding: "16px 20px", marginBottom: 20, textAlign: "center" }}>
-              <div style={{ color: riskColor(result.riskLevel), fontSize: 18, fontWeight: 800 }}>{riskLabel(result.riskLevel)}</div>
-              {result.referNow && <div style={{ color: C.red, fontSize: 14, marginTop: 6 }}>Bawa ke Puskesmas hari ini</div>}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+              <h2 style={{ color: C.white, fontSize: 20, fontWeight: 700, margin: 0 }}>
+                Riwayat Kasus
+              </h2>
+              <button onClick={() => setView("home")} style={{
+                background: "none", border: `1px solid ${C.border}`,
+                color: C.dim, borderRadius: 8, padding: "6px 12px",
+                fontSize: 13, cursor: "pointer",
+              }}>← Kembali</button>
             </div>
-            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, marginBottom: 20 }}>
-              <pre style={{ color: C.white, fontSize: 13, lineHeight: 1.7, whiteSpace: "pre-wrap", margin: 0, fontFamily: "inherit" }}>{result.reportText}</pre>
-            </div>
-            {synced ? (
-              <div style={{ background: "rgba(2,195,154,0.1)", border: `1px solid ${C.teal}`, borderRadius: 10, padding: 12, marginBottom: 20, fontSize: 13, color: C.teal }}>
-                ✅ Data berhasil disinkron ke server
-              </div>
+
+            {history.length === 0 ? (
+              <p style={{ color: C.dim, textAlign: "center", marginTop: 40 }}>
+                Belum ada kasus tersimpan.
+              </p>
             ) : (
-              <div style={{ background: "rgba(255,209,102,0.1)", border: `1px solid ${C.yellow}`, borderRadius: 10, padding: 12, marginBottom: 20, fontSize: 13, color: C.yellow }}>
-                ⏳ Tersimpan lokal — akan sinkron ke server saat ada sinyal
-              </div>
+              history.map((c) => (
+                <div key={c.localId} style={{
+                  background: C.card, border: `1px solid ${C.border}`,
+                  borderRadius: 12, padding: 16, marginBottom: 12,
+                }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                    <span style={{ color: C.white, fontWeight: 700 }}>{getPatientName(c)}</span>
+                    <span style={{
+                      color: riskColor(c.riskLevel), fontSize: 12, fontWeight: 700,
+                      background: `${riskColor(c.riskLevel)}20`,
+                      padding: "2px 8px", borderRadius: 8,
+                    }}>
+                      {c.riskLevel}
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, marginBottom: 4 }}>
+                    <span style={{
+                      fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 6,
+                      background: `${moduleColor(c.moduleType)}20`,
+                      color: moduleColor(c.moduleType),
+                    }}>
+                      {moduleLabel(c.moduleType)}
+                    </span>
+                    <span style={{ color: C.dim, fontSize: 12 }}>
+                      {formatAge(c.ageMonths, c.ageDays)}
+                    </span>
+                  </div>
+                  <div style={{ color: C.dimmer, fontSize: 12, marginTop: 4 }}>
+                    {new Date(c.createdAt).toLocaleDateString("id-ID", {
+                      day: "numeric", month: "short", year: "numeric",
+                      hour: "2-digit", minute: "2-digit"
+                    })}
+                    {" · "}
+                    <span style={{ color: c.syncStatus === "synced" ? C.green : C.yellow }}>
+                      {c.syncStatus === "synced" ? "✓ Tersinkron" : "⏳ Belum sinkron"}
+                    </span>
+                  </div>
+                </div>
+              ))
             )}
-            <button onClick={startTriage} style={{ width: "100%", padding: 16, borderRadius: 12, background: C.teal, color: C.white, fontSize: 16, fontWeight: 700, border: "none", cursor: "pointer", marginBottom: 12 }}>
-              ➕ Triage Anak Berikutnya
-            </button>
-            <button onClick={() => router.push("/triage")} style={{ width: "100%", padding: 14, borderRadius: 12, background: C.card, color: C.dim, fontSize: 15, fontWeight: 600, border: `1px solid ${C.border}`, cursor: "pointer" }}>
-              ← Kembali ke Beranda
-            </button>
           </div>
         )}
 
@@ -533,34 +345,34 @@ export default function ChildTriagePage() {
   );
 }
 
-function QCard({ question, hint, children }: { question: string; hint?: string; children: React.ReactNode }) {
+function ModuleCard({ emoji, title, subtitle, color, onClick }: {
+  emoji: string;
+  title: string;
+  subtitle: string;
+  color: string;
+  onClick: () => void;
+}) {
   return (
-    <div style={{ padding: "32px 20px" }}>
-      <p style={{ color: C.dim, fontSize: 13, marginBottom: 8 }}>Posyandu Triage</p>
-      <h2 style={{ color: C.white, fontSize: 22, fontWeight: 700, marginBottom: hint ? 8 : 24, lineHeight: 1.4 }}>{question}</h2>
-      {hint && <p style={{ color: C.dim, fontSize: 14, marginBottom: 24 }}>{hint}</p>}
-      {children}
-    </div>
-  );
-}
-
-function TInput({ placeholder, value, onChange, onSubmit, type = "text" }: { placeholder: string; value: string; onChange: (v: string) => void; onSubmit: () => void; type?: string }) {
-  return (
-    <div>
-      <input type={type} placeholder={placeholder} value={value} onChange={e => onChange(e.target.value)} onKeyDown={e => e.key === "Enter" && onSubmit()} autoFocus
-        style={{ width: "100%", padding: "14px 16px", borderRadius: 10, background: "rgba(255,255,255,0.08)", border: `1.5px solid ${C.border}`, color: C.white, fontSize: 18, outline: "none", boxSizing: "border-box", marginBottom: 16 }} />
-      <button onClick={onSubmit} style={{ width: "100%", padding: 14, borderRadius: 10, background: value.trim() ? C.teal : "rgba(2,195,154,0.3)", color: C.white, fontSize: 16, fontWeight: 700, border: "none", cursor: value.trim() ? "pointer" : "not-allowed" }}>Lanjut →</button>
-    </div>
-  );
-}
-
-function CBtn({ label, sub, onClick }: { label: string; sub?: string; onClick: () => void }) {
-  return (
-    <button onClick={onClick} style={{ width: "100%", padding: "16px 20px", borderRadius: 12, background: C.card, border: `1.5px solid ${C.border}`, color: C.white, fontSize: 16, fontWeight: 600, cursor: "pointer", marginBottom: 12, textAlign: "left" }}>
-      {label}
-      {sub && <div style={{ color: C.dim, fontSize: 13, fontWeight: 400, marginTop: 2 }}>{sub}</div>}
+    <button onClick={onClick} style={{
+      width: "100%", padding: "16px 20px", borderRadius: 14,
+      background: `${color}10`,
+      border: `1.5px solid ${color}40`,
+      cursor: "pointer", marginBottom: 12, textAlign: "left",
+      display: "flex", alignItems: "center", gap: 16,
+    }}>
+      <div style={{
+        width: 44, height: 44, borderRadius: 12,
+        background: `${color}20`,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontSize: 22, flexShrink: 0,
+      }}>
+        {emoji}
+      </div>
+      <div>
+        <div style={{ color: "#FFFFFF", fontSize: 16, fontWeight: 700 }}>{title}</div>
+        <div style={{ color: "rgba(255,255,255,0.5)", fontSize: 13, marginTop: 2 }}>{subtitle}</div>
+      </div>
+      <div style={{ marginLeft: "auto", color: `${color}80`, fontSize: 18 }}>›</div>
     </button>
   );
 }
-
-function Err({ msg }: { msg: string }) { return <p style={{ color: C.red, fontSize: 13, marginTop: 8 }}>{msg}</p>; }
