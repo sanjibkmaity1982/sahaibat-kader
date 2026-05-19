@@ -252,6 +252,14 @@ export default function TriagePage() {
   />
 </div>
 
+            <div style={{ marginBottom: 8 }}>
+  <p style={{ color: C.dimmer, fontSize: 12, fontWeight: 600, marginBottom: 12, letterSpacing: 1, marginTop: 20 }}>
+    TRIAGE PENYAKIT
+  </p>
+  <ModuleCard emoji="🫁" title="TBC" subtitle="Skrining tuberkulosis" color="#795548" onClick={() => router.push("/triage/tb")} />
+  <ModuleCard emoji="🦟" title="Malaria" subtitle="Skrining malaria — daerah endemis" color="#FF9800" onClick={() => router.push("/triage/malaria")} />
+</div>
+
             {/* History + pending */}
             <div style={{ marginTop: 24 }}>
               <button onClick={showHistory} style={{
