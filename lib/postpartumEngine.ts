@@ -3,6 +3,7 @@
 // Covers: Setelah Melahirkan (Nifas) — 0 to 42 days post-delivery.
 // Deterministic, zero AI, zero network.
 
+import { generateIsiPiringku } from './counselling/isiPiringku';
 export interface PostpartumInput {
   days_postpartum: number | null;    // days since delivery
   perdarahan: boolean;               // perdarahan lewat jalan lahir
@@ -145,6 +146,11 @@ export function runPostpartumTriage(
     lines.push('');
     lines.push('🤱 Tips menyusui: Posisi dan pelekatan yang benar — mulut bayi menutup areola, bukan hanya puting. Hubungi konselor menyusui di Puskesmas.');
   }
+
+  // ── Isi Piringku postpartum/menyusui counselling ──
+  const nutritionSection = generateIsiPiringku({ sasaranType: 'postpartum' });
+  if (nutritionSection) { lines.push(''); lines.push(nutritionSection); }
+
 
   lines.push('');
   if (chwName) lines.push(`Kader: ${chwName}`);
