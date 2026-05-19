@@ -239,6 +239,19 @@ export default function TriagePage() {
               />
             </div>
 
+            <div style={{ marginBottom: 8 }}>
+  <p style={{ color: C.dimmer, fontSize: 12, fontWeight: 600, marginBottom: 12, letterSpacing: 1, marginTop: 20 }}>
+    USIA SEKOLAH & REMAJA
+  </p>
+  <ModuleCard
+    emoji="🎒"
+    title="Remaja"
+    subtitle="Skrining kesehatan usia 6–18 tahun"
+    color="#2196F3"
+    onClick={() => router.push("/triage/remaja")}
+  />
+</div>
+
             {/* History + pending */}
             <div style={{ marginTop: 24 }}>
               <button onClick={showHistory} style={{
