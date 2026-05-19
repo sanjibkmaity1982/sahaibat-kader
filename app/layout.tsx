@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import CacheWarmup from "./CacheWarmup";
 import ServiceWorkerRegistration from "./ServiceWorkerRegistration";
+import VersionGuard from "./VersionGuard";
 
 export const metadata: Metadata = {
   title: "SahAIbat Kader",
@@ -33,6 +34,7 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-capable" content="yes" />
       </head>
       <body style={{ margin: 0, background: "#0D1F1C", minHeight: "100vh" }}>
+        <VersionGuard />
         <CacheWarmup />
         <ServiceWorkerRegistration />
         {children}
