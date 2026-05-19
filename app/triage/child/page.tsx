@@ -1,7 +1,7 @@
 "use client";
 
 // app/triage/child/page.tsx
-// Production v3 — NIK optional, DOB/age flexible input, WHO flags, auto-sync
+// Production v4 — added lingkar kepala (head circumference) for Kemenkes 2c
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
@@ -14,7 +14,7 @@ import { syncPendingCases } from "@/lib/syncClient";
 
 type Step =
   | "home" | "child_name" | "nik" | "age_method" | "age_dob" | "age_months" | "age_years"
-  | "gender" | "weight" | "height" | "muac" | "feeding" | "milestone" | "result";
+  | "gender" | "weight" | "height" | "muac" | "headcirc" | "feeding" | "milestone" | "result";
 
 interface TriageState {
   childName: string;
@@ -26,6 +26,7 @@ interface TriageState {
   weightKg: number | null;
   heightCm: number | null;
   muacCm: number | null;
+  headCircCm: number | null;
   feedingFreq: "1" | "2" | "3" | null;
   milestoneScore: "1" | "2" | "3" | null;
 }
@@ -34,6 +35,7 @@ const emptyState: TriageState = {
   childName: "", nik: "", dob: null, ageMonths: null,
   ageSource: "manual_months", gender: null,
   weightKg: null, heightCm: null, muacCm: null,
+  headCircCm: null,
   feedingFreq: null, milestoneScore: null,
 };
 
@@ -116,7 +118,6 @@ export default function ChildTriagePage() {
   function submitNik() {
     const val = input.trim().replace(/\s/g, "");
     const upper = val.toUpperCase();
-    // Allow skip via typing or empty
     if (val === "" || upper === "SKIP" || upper === "S" || upper === "LEWATI") {
       next({ nik: "" }, "age_method");
       return;
@@ -168,11 +169,20 @@ export default function ChildTriagePage() {
 
   function submitMUAC() {
     if (input.trim().toLowerCase() === "skip" || input.trim() === "") {
-      next({ muacCm: null }, "feeding"); return;
+      next({ muacCm: null }, "headcirc"); return;
     }
     const val = parseFloat(input.trim().replace(",", "."));
     if (isNaN(val) || val < 6 || val > 25) { setError("Masukkan LILA yang valid (cm) atau ketik SKIP."); return; }
-    next({ muacCm: val }, "feeding");
+    next({ muacCm: val }, "headcirc");
+  }
+
+  function submitHeadCirc() {
+    if (input.trim().toLowerCase() === "skip" || input.trim() === "") {
+      next({ headCircCm: null }, "feeding"); return;
+    }
+    const val = parseFloat(input.trim().replace(",", "."));
+    if (isNaN(val) || val < 25 || val > 60) { setError("Masukkan lingkar kepala yang valid (cm) atau ketik SKIP."); return; }
+    next({ headCircCm: val }, "feeding");
   }
 
   async function finishTriage(milestoneScore: "1" | "2" | "3") {
@@ -183,6 +193,7 @@ export default function ChildTriagePage() {
       weightKg: t.weightKg,
       heightCm: t.heightCm,
       muacCm: t.muacCm,
+      headCircCm: t.headCircCm,
       ageMonths: t.ageMonths,
       gender: t.gender,
       feedingFreq: t.feedingFreq,
@@ -211,6 +222,10 @@ export default function ChildTriagePage() {
       muacCat: engineResult.muacCat,
       feedingFreq: t.feedingFreq,
       milestoneScore,
+      payload: {
+        headCircCm: t.headCircCm,
+        headCircFlag: engineResult.headCircFlag,
+      },
       riskLevel: engineResult.riskLevel,
       reportText: engineResult.reportText,
       referNow: engineResult.referNow,
@@ -459,6 +474,13 @@ export default function ChildTriagePage() {
         {step === "muac" && (
           <QCard question="LILA anak (cm)?" hint="Lingkar Lengan Atas. Ketik SKIP jika tidak diukur.">
             <TInput placeholder="Contoh: 13.5 atau SKIP" value={input} onChange={setInput} onSubmit={submitMUAC} />
+            {error && <Err msg={error} />}
+          </QCard>
+        )}
+
+        {step === "headcirc" && (
+          <QCard question="Lingkar kepala anak (cm)?" hint="Ukur melingkar di atas alis dan bagian paling menonjol di belakang. Ketik SKIP jika tidak diukur.">
+            <TInput placeholder="Contoh: 45.0 atau SKIP" value={input} onChange={setInput} onSubmit={submitHeadCirc} />
             {error && <Err msg={error} />}
           </QCard>
         )}
