@@ -164,7 +164,7 @@ export default function ImmunizationPage() {
       patientName: child.name,
       ageMonths: child.ageMonths,
       ageDays: null,
-      gender: null,
+      gender: 'unknown' as any,
       payload: {
         module: 'immunization',
         action: 'log_vaccine',
