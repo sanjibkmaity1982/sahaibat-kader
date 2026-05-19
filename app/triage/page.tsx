@@ -212,6 +212,14 @@ export default function TriagePage() {
               />
             </div>
 
+            <ModuleCard
+  emoji="💉"
+  title="Imunisasi & Suplemen"
+  subtitle="Jadwal imunisasi, vitamin A, obat cacing"
+  color="#02C39A"
+  onClick={() => router.push("/triage/immunization")}
+/>
+
             <div style={{ marginBottom: 8 }}>
               <p style={{ color: C.dimmer, fontSize: 12, fontWeight: 600, marginBottom: 12, letterSpacing: 1, marginTop: 20 }}>
                 TRIAGE IBU
