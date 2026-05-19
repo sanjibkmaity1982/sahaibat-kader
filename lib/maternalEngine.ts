@@ -1,17 +1,20 @@
 // lib/maternalEngine.ts
 // Offline maternal triage engine for PWA — KMS Permenkes 2/2020.
-// UPDATED: LILA (maternal MUAC) added for KEK detection — Kemenkes 3d.
+// UPDATED: LILA/KEK — Kemenkes 3d.
+// UPDATED: Isi Piringku maternal counselling — Kemenkes 3b.
 // Deterministic, zero AI, zero network.
+
+import { generateIsiPiringku } from './counselling/isiPiringku';
 
 export interface MaternalInput {
   gestasi_weeks: number | null;
-  lila_cm: number | null;           // Lingkar Lengan Atas ibu — Kemenkes 3d
+  lila_cm: number | null;
   perdarahan: boolean;
   nyeri_perut: boolean;
   sakit_kepala_kabur: boolean;
   demam: boolean;
   muntah_hebat: boolean;
-  gerak_bayi_kurang: boolean | null; // null = not asked (< 20 weeks)
+  gerak_bayi_kurang: boolean | null;
   sesak_jantung: boolean;
   bengkak_mendadak: boolean;
   keputihan_abnormal: boolean;
@@ -32,7 +35,6 @@ export interface MaternalResult {
   trimester: 1 | 2 | 3 | null;
 }
 
-// KEK classification: <23.5 cm = Kurang Energi Kronik
 function classifyKEK(lilaCm: number | null): 'kek' | 'normal' | 'not_measured' {
   if (lilaCm == null) return 'not_measured';
   return lilaCm < 23.5 ? 'kek' : 'normal';
@@ -43,7 +45,6 @@ export function computeMaternalRisk(input: MaternalInput): MaternalRisk {
   const sys = input.td_sys ?? 0;
   const dia = input.td_dia ?? 0;
 
-  // DARURAT
   if (
     input.perdarahan ||
     (input.gerak_bayi_kurang === true && gestasi >= 28) ||
@@ -51,7 +52,6 @@ export function computeMaternalRisk(input: MaternalInput): MaternalRisk {
     (input.sakit_kepala_kabur && input.bengkak_mendadak)
   ) return 'darurat';
 
-  // TINGGI
   if (
     input.nyeri_perut ||
     input.sesak_jantung ||
@@ -60,7 +60,6 @@ export function computeMaternalRisk(input: MaternalInput): MaternalRisk {
     (input.gerak_bayi_kurang === true && gestasi >= 20)
   ) return 'tinggi';
 
-  // SEDANG
   if (
     input.sakit_kepala_kabur ||
     input.bengkak_mendadak ||
@@ -96,7 +95,6 @@ export function runMaternalTriage(
     : risk === 'tinggi' ? 0
     : risk === 'sedang' ? 2 : 30;
 
-  // Collect danger signs
   const dangersFound: string[] = [];
   if (input.perdarahan) dangersFound.push('Perdarahan dari jalan lahir');
   if (input.nyeri_perut) dangersFound.push('Nyeri perut hebat');
@@ -124,7 +122,6 @@ export function runMaternalTriage(
     lines.push(`Usia kehamilan: ${gestasi} minggu (Trimester ${trimester})`);
   }
 
-  // ── LILA / KEK status ──
   lines.push('');
   lines.push('📏 HASIL PENGUKURAN');
   if (input.lila_cm != null) {
@@ -174,20 +171,19 @@ export function runMaternalTriage(
     lines.push('4. Kenali tanda bahaya — segera ke Puskesmas jika muncul');
   }
 
-  // ── KEK-specific counselling ──
-  if (kekStatus === 'kek') {
-    lines.push('');
-    lines.push('⚠️ IBU MENGALAMI KEK (Kurang Energi Kronik):');
-    lines.push('• Ibu berhak mendapat PMT (Pemberian Makanan Tambahan) dari Puskesmas');
-    lines.push('• Perbanyak makan protein hewani: telur, ikan, ayam, hati');
-    lines.push('• Makan lebih sering: 3x makan utama + 2x selingan');
-    lines.push('• Minum TTD setiap hari — jangan bersamaan dengan teh');
-    lines.push('• Kontrol LILA setiap bulan di Posyandu');
-  }
-
   if ((gestasi ?? 0) >= 20 && risk !== 'darurat') {
     lines.push('');
     lines.push('👶 Pantau gerakan bayi: minimal 10 kali dalam 12 jam.');
+  }
+
+  // ── Isi Piringku maternal nutrition counselling ──────────────
+  const nutritionSection = generateIsiPiringku({
+    sasaranType: 'maternal',
+    kekStatus,
+  });
+  if (nutritionSection) {
+    lines.push('');
+    lines.push(nutritionSection);
   }
 
   lines.push('');
