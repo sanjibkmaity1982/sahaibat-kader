@@ -18,13 +18,16 @@ const C = {
 type Step =
   | "name" | "gestasi" | "lila" | "perdarahan" | "nyeri_perut"
   | "sakit_kepala" | "demam" | "muntah" | "gerak_bayi"
-  | "sesak" | "bengkak" | "keputihan" | "td" | "result";
+  | "sesak" | "bengkak" | "keputihan"
+  | "ttd" | "ttd_side"
+  | "td" | "result";
 
 const emptyInput: MaternalInput = {
   gestasi_weeks: null, lila_cm: null, perdarahan: false, nyeri_perut: false,
   sakit_kepala_kabur: false, demam: false, muntah_hebat: false,
   gerak_bayi_kurang: null, sesak_jantung: false,
   bengkak_mendadak: false, keputihan_abnormal: false,
+  ttd_adherence: null, ttd_side_effects: null,
   td_sys: null, td_dia: null,
 };
 
@@ -336,10 +339,46 @@ export default function MaternalTriagePage() {
         {step === "keputihan" && (
           <QCard title="Keputihan berbau, gatal berlebihan, atau keluar cairan tidak biasa?" accent={C.accent}>
             <YNButtons
-              onYes={() => yesNo("keputihan_abnormal", true, "td")}
-              onNo={() => yesNo("keputihan_abnormal", false, "td")}
+              onYes={() => yesNo("keputihan_abnormal", true, "ttd")}
+              onNo={() => yesNo("keputihan_abnormal", false, "ttd")}
               accent={C.accent}
             />
+          </QCard>
+        )}
+
+        {/* ── TTD ADHERENCE ── */}
+        {step === "ttd" && (
+          <QCard title="Apakah ibu rutin minum Tablet Tambah Darah (TTD)?" hint="TTD wajib diminum setiap hari selama hamil — mencegah anemia" accent={C.accent}>
+            <ChoiceBtn label="💊 Ya, setiap hari" sub="Rutin minum TTD" onClick={() => {
+              setInput(prev => ({ ...prev, ttd_adherence: '1' as const }));
+              setStep("td");
+            }} accent={C.accent} />
+            <ChoiceBtn label="⚠️ Kadang-kadang" sub="Tidak setiap hari" onClick={() => {
+              setInput(prev => ({ ...prev, ttd_adherence: '2' as const }));
+              setStep("ttd_side");
+            }} accent={C.accent} />
+            <ChoiceBtn label="❌ Tidak minum" sub="Tidak pernah atau sudah berhenti" onClick={() => {
+              setInput(prev => ({ ...prev, ttd_adherence: '3' as const }));
+              setStep("ttd_side");
+            }} accent={C.accent} />
+          </QCard>
+        )}
+
+        {/* ── TTD SIDE EFFECTS (only if not rutin) ── */}
+        {step === "ttd_side" && (
+          <QCard title="Apakah ada keluhan setelah minum TTD?" hint="Efek samping TTD bisa diatasi — bukan alasan berhenti minum" accent={C.accent}>
+            <ChoiceBtn label="🤢 Mual / tidak enak perut" sub="Keluhan paling umum" onClick={() => {
+              setInput(prev => ({ ...prev, ttd_side_effects: '1' as const }));
+              setStep("td");
+            }} accent={C.accent} />
+            <ChoiceBtn label="😣 Sembelit / susah BAB" sub="Efek samping zat besi" onClick={() => {
+              setInput(prev => ({ ...prev, ttd_side_effects: '2' as const }));
+              setStep("td");
+            }} accent={C.accent} />
+            <ChoiceBtn label="✅ Tidak ada keluhan" sub="Tidak ada efek samping" onClick={() => {
+              setInput(prev => ({ ...prev, ttd_side_effects: '3' as const }));
+              setStep("td");
+            }} accent={C.accent} />
           </QCard>
         )}
 
