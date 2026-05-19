@@ -1,8 +1,7 @@
 // lib/offlineEngine.ts
 // Browser-safe offline WHO growth engine for SahAIbat Kader PWA.
-// Now uses @sahaibat/growth-engine as single source of truth.
-// UPDATED: Feature 1 (velocity engine) + Feature 2 (CMAM flag) added.
-// UPDATED: Head circumference (lingkar kepala) added for Kemenkes 2c.
+// UPDATED: IYCF/Isi Piringku counselling appended to report — Kemenkes 2b.
+// UPDATED: Head circumference (lingkar kepala) — Kemenkes 2c.
 // All WHO classification logic unchanged — zero AI cost, fully offline.
 
 import {
@@ -23,11 +22,13 @@ import {
   shouldStartCmam,
 } from './cmamEngine';
 
+import { generateIsiPiringku } from './counselling/isiPiringku';
+
 export interface OfflineTriageInput {
   weightKg: number;
   heightCm: number;
   muacCm: number | null;
-  headCircCm: number | null;       // Lingkar kepala — Kemenkes competency 2c
+  headCircCm: number | null;
   ageMonths: number;
   gender: 'male' | 'female';
   feedingFreq: '1' | '2' | '3';
@@ -35,7 +36,6 @@ export interface OfflineTriageInput {
   childName?: string;
   chwName?: string;
 
-  // ── Feature 1: previous visit data for velocity (optional) ──
   previousVisit?: {
     weight_kg: number;
     severity: string;
@@ -58,28 +58,19 @@ export interface OfflineTriageResult {
   followUpDays: number;
   referNow: boolean;
 
-  // ── Feature 1: velocity ──────────────────────────────────────
   velocityFlag: VelocityFlag;
   velocityMessage: string;
-
-  // ── Feature 2: CMAM ─────────────────────────────────────────
   cmamConfirmNeeded: boolean;
 }
 
 // ── Head circumference classification (simplified WHO reference) ──────────
-// Uses approximate median ± 2SD boundaries by age and gender.
-// Source: WHO Child Growth Standards — Head circumference-for-age tables.
-// Returns 'micro' (<-2SD), 'macro' (>+2SD), or 'normal'.
 function classifyHeadCirc(
   hcCm: number,
   ageMonths: number,
   gender: 'male' | 'female'
 ): 'micro' | 'macro' | 'normal' {
-  // Approximate -2SD and +2SD values for key age points (cm)
-  // Interpolated linearly between points for simplicity.
   const refs: Record<string, { low: number; high: number }[]> = {
     male: [
-      // [age 0, 1, 2, 3, 6, 9, 12, 18, 24, 36, 48, 60]
       { low: 31.9, high: 37.0 },  // 0
       { low: 33.8, high: 38.8 },  // 1
       { low: 35.6, high: 40.6 },  // 2
@@ -112,14 +103,12 @@ function classifyHeadCirc(
   const agePoints = [0, 1, 2, 3, 6, 9, 12, 18, 24, 36, 48, 60];
   const genderRefs = refs[gender];
 
-  // Find the two bracketing age points
   let lowerIdx = 0;
   for (let i = 0; i < agePoints.length - 1; i++) {
     if (ageMonths >= agePoints[i]) lowerIdx = i;
   }
   const upperIdx = Math.min(lowerIdx + 1, agePoints.length - 1);
 
-  // Linear interpolation
   const ageLow = agePoints[lowerIdx];
   const ageHigh = agePoints[upperIdx];
   const fraction = ageHigh === ageLow ? 0 : (ageMonths - ageLow) / (ageHigh - ageLow);
@@ -153,7 +142,6 @@ export function runGrowthTriage(input: OfflineTriageInput): OfflineTriageResult 
   const wlz = result?.wlz ?? 'normal';
   const muacCat = input.muacCm ? interpretMUAC(input.muacCm, input.ageMonths) : 'normal';
 
-  // ── Head circumference classification ──
   const headCircFlag: 'micro' | 'macro' | 'normal' | 'not_measured' =
     input.headCircCm != null
       ? classifyHeadCirc(input.headCircCm, input.ageMonths, input.gender)
@@ -178,7 +166,6 @@ export function runGrowthTriage(input: OfflineTriageInput): OfflineTriageResult 
     : muacCat === 'mam' ? 7
     : input.ageMonths <= 24 ? 30 : 90;
 
-  // ── Feature 1: Velocity calculation (deterministic, offline) ─
   const velocityResult = computeVelocity(
     {
       weight_kg: input.weightKg,
@@ -190,14 +177,13 @@ export function runGrowthTriage(input: OfflineTriageInput): OfflineTriageResult 
   );
   const velocityMessage = buildVelocitySection(velocityResult);
 
-  // ── Feature 2: CMAM flag (deterministic, no extra Kader work) ─
   const cmamConfirmNeeded = shouldStartCmam(
     input.muacCm,
     wlz,
     waz
   );
 
-  // ── Build report text (identical structure to WhatsApp output) ─
+  // ── Build report text ─
   const ageDisplay = input.ageMonths < 12
     ? `${input.ageMonths} bulan`
     : `${Math.floor(input.ageMonths / 12)} tahun ${input.ageMonths % 12 > 0 ? input.ageMonths % 12 + ' bulan' : ''}`.trim();
@@ -251,6 +237,19 @@ export function runGrowthTriage(input: OfflineTriageInput): OfflineTriageResult 
     lines.push('• Tingkatkan frekuensi makan/menyusu');
   }
 
+  // ── IYCF / Isi Piringku counselling section ──────────────────
+  const iycfSection = generateIsiPiringku({
+    sasaranType: 'child',
+    ageMonths: input.ageMonths,
+    feedingFreq: input.feedingFreq,
+    muacCat,
+    laz,
+  });
+  if (iycfSection) {
+    lines.push('');
+    lines.push(iycfSection);
+  }
+
   lines.push('');
   if (input.chwName) lines.push(`Kader: ${input.chwName}`);
 
@@ -263,7 +262,6 @@ export function runGrowthTriage(input: OfflineTriageInput): OfflineTriageResult 
     lines.push(`📅 Kunjungan berikutnya: ${input.ageMonths <= 24 ? '1 bulan' : '3 bulan'} lagi`);
   }
 
-  // ── Feature 1: Velocity section appended to report ───────────
   if (velocityMessage && velocityMessage.trim().length > 0) {
     lines.push('');
     lines.push(velocityMessage);
