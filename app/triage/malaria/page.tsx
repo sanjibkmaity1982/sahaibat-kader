@@ -20,7 +20,7 @@ const C = {
 type Step =
   | "home" | "name" | "age" | "gender" | "endemic"
   | "fever_days" | "fever_pattern" | "symptoms" | "danger_signs"
-  | "rdt" | "pregnant" | "under5" | "result";
+  | "rdt" | "pregnant" | "under5" | "paparan_asap" | "result";
 
 interface State {
   patientName: string; age_years: number | null; gender: "male" | "female" | null;
@@ -29,13 +29,15 @@ interface State {
   symptoms: string[]; danger_signs: string[];
   rdt_result: "1" | "2" | "3" | null;
   is_pregnant: boolean; is_under5: boolean;
+  paparan_asap: boolean;
 }
 
 const empty: State = {
   patientName: "", age_years: null, gender: null, endemic_area: null,
   fever_days: null, fever_pattern: null, symptoms: [], danger_signs: [],
   rdt_result: null, is_pregnant: false, is_under5: false,
-};
+  paparan_asap: finalState.paparan_asap,
+    };
 
 function riskColor(l: string) { return l === "HIGH" ? C.red : l === "MEDIUM" ? C.yellow : C.green; }
 
@@ -85,7 +87,7 @@ export default function MalariaTriagePage() {
       rdt_result: finalState.rdt_result,
       is_pregnant: finalState.is_pregnant,
      is_under5: finalState.is_under5,
-      paparan_asap: false,
+      paparan_asap: finalState.paparan_asap,
     };
 
     const res = runMalariaTriage(engineInput, identity.name);
@@ -202,8 +204,12 @@ export default function MalariaTriagePage() {
           <YN y={() => next({ is_pregnant: true }, "under5")} n={() => next({ is_pregnant: false }, "under5")} a={C.accent} />
         </Q>}
 
-        {step === "under5" && <Q q="Apakah pasien berusia di bawah 5 tahun?" a={C.accent}>
-          <YN y={() => { const u = { ...s, is_under5: true }; setS(u); finish(u); }} n={() => { const u = { ...s, is_under5: false }; setS(u); finish(u); }} a={C.accent} />
+       {step === "under5" && <Q q="Apakah pasien berusia di bawah 5 tahun?" a={C.accent}>
+          <YN y={() => { setS(prev => ({ ...prev, is_under5: true })); setStep("paparan_asap"); }} n={() => { setS(prev => ({ ...prev, is_under5: false })); setStep("paparan_asap"); }} a={C.accent} />
+        </Q>}
+
+        {step === "paparan_asap" && <Q q="Apakah pasien tinggal dekat gunung berapi aktif atau area kebakaran hutan?" h="Asap memperburuk gejala pernapasan bersamaan malaria" a={C.accent}>
+          <YN y={() => { const u = { ...s, paparan_asap: true }; setS(u); finish(u); }} n={() => { const u = { ...s, paparan_asap: false }; setS(u); finish(u); }} a={C.accent} />
         </Q>}
 
         {step === "result" && result && (
