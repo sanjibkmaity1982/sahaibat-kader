@@ -22,7 +22,8 @@ type Step =
   | "cough_2wk" | "cough_blood" | "night_sweats" | "weight_loss" | "fever_2wk" | "fatigue"
   | "hiv" | "diabetes" | "smoking_tb" | "close_contact"
   | "treatment_status" | "oat_month" | "oat_adherence" | "oat_side"
-  | "household_contacts" | "household_u5" | "household_cough"
+| "household_contacts" | "household_u5" | "household_cough"
+  | "paparan_asap"
   | "result";
 
 interface State {
@@ -35,6 +36,7 @@ interface State {
   oat_side_effects: string[];
   household_contacts: number | null; household_children_u5: number | null;
   household_cough: boolean;
+  paparan_asap: boolean;
 }
 
 const empty: State = {
@@ -44,7 +46,8 @@ const empty: State = {
   hiv_positive: false, diabetes: false, smoking: false, close_contact: false,
   treatment_status: null, oat_month: null, oat_adherence: null, oat_side_effects: [],
   household_contacts: null, household_children_u5: null, household_cough: false,
-};
+  paparan_asap: finalState.paparan_asap,
+    };
 
 function riskColor(l: string) { return l === "HIGH" ? C.red : l === "MEDIUM" ? C.yellow : C.green; }
 
@@ -107,7 +110,7 @@ export default function TBTriagePage() {
       household_contacts: finalState.household_contacts,
       household_children_u5: finalState.household_children_u5,
       household_cough: finalState.household_cough,
-      paparan_asap: false,
+      paparan_asap: finalState.paparan_asap,
     };
 
     const res = runTBTriage(engineInput, identity.name);
@@ -224,7 +227,11 @@ export default function TBTriagePage() {
         </Q>}
 
         {step === "household_cough" && <Q q="Apakah ada orang lain di rumah yang batuk lama?" a={C.accent}>
-          <YN y={() => { const u = { ...s, household_cough: true }; setS(u); finish(u); }} n={() => { const u = { ...s, household_cough: false }; setS(u); finish(u); }} a={C.accent} />
+          <YN y={() => { setS(prev => ({ ...prev, household_cough: true })); setStep("paparan_asap"); }} n={() => { setS(prev => ({ ...prev, household_cough: false })); setStep("paparan_asap"); }} a={C.accent} />
+        </Q>}
+
+        {step === "paparan_asap" && <Q q="Apakah pasien tinggal dekat gunung berapi aktif atau area kebakaran hutan?" h="Asap dan abu vulkanik memperburuk gejala TBC" a={C.accent}>
+          <YN y={() => { const u = { ...s, paparan_asap: true }; setS(u); finish(u); }} n={() => { const u = { ...s, paparan_asap: false }; setS(u); finish(u); }} a={C.accent} />
         </Q>}
 
         {step === "result" && result && (
