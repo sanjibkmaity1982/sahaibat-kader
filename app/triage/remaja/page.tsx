@@ -22,9 +22,9 @@ type Step =
   | "home" | "name" | "nik" | "age" | "gender"
   | "weight" | "height" | "waist" | "bp"
   | "ttd" | "hb"
-  | "activity" | "eating" | "smoking"
+ | "activity" | "eating" | "smoking"
+  | "ispa_batuk" | "ispa_sesak" | "ispa_mata" | "ispa_paparan"
   | "result";
-
 interface TriageState {
   patientName: string;
   nik: string;
@@ -40,6 +40,10 @@ interface TriageState {
   activity_level: "1" | "2" | "3" | null;
   eating_pattern: "1" | "2" | "3" | null;
   smoking: "1" | "2" | "3" | null;
+  ispa_batuk: "kering" | "berdahak" | "tidak" | null;
+  ispa_sesak: boolean;
+  ispa_mata: boolean;
+  ispa_paparan: boolean;
 }
 
 const emptyState: TriageState = {
@@ -47,7 +51,8 @@ const emptyState: TriageState = {
   weight_kg: null, height_cm: null, waist_cm: null,
   bp_sys: null, bp_dia: null,
   ttd_adherence: null, hb_screening: null,
-  activity_level: null, eating_pattern: null, smoking: null,
+ activity_level: null, eating_pattern: null, smoking: null,
+  ispa_batuk: null, ispa_sesak: false, ispa_mata: false, ispa_paparan: false,
 };
 
 function riskColor(level: string) {
@@ -118,6 +123,11 @@ export default function RemajaTriagePage() {
       activity_level: finalState.activity_level,
       eating_pattern: finalState.eating_pattern,
       smoking: finalState.smoking,
+      ispa_batuk: finalState.ispa_batuk ?? 'tidak',
+      ispa_sesak: finalState.ispa_sesak,
+      ispa_mata: finalState.ispa_mata,
+      ispa_paparan: finalState.ispa_paparan,
+      ispa_durasi: null,
     };
 
     const engineResult = runRemajaTriage(engineInput, identity.name);
@@ -333,18 +343,50 @@ export default function RemajaTriagePage() {
           </QCard>
         )}
 
-        {step === "smoking" && (
+       {step === "smoking" && (
           <QCard q="Apakah merokok atau menggunakan vape?" accent={C.accent}>
             <CBtn label="🚬 Ya, aktif merokok/vape" onClick={() => {
-              const updated = { ...triage, smoking: "1" as const };
-              setTriage(updated); finish(updated);
+              next({ smoking: "1" }, "ispa_batuk");
             }} accent={C.accent} />
             <CBtn label="⚠️ Pernah, tapi sudah berhenti" onClick={() => {
-              const updated = { ...triage, smoking: "2" as const };
-              setTriage(updated); finish(updated);
+              next({ smoking: "2" }, "ispa_batuk");
             }} accent={C.accent} />
             <CBtn label="✅ Tidak pernah" onClick={() => {
-              const updated = { ...triage, smoking: "3" as const };
+              next({ smoking: "3" }, "ispa_batuk");
+            }} accent={C.accent} />
+          </QCard>
+        )}
+
+        {step === "ispa_batuk" && (
+          <QCard q="Apakah batuk?" hint="Batuk kering (tanpa dahak) atau batuk berdahak?" accent={C.accent}>
+            <CBtn label="😷 Ya, batuk kering" onClick={() => next({ ispa_batuk: "kering" }, "ispa_sesak")} accent={C.accent} />
+            <CBtn label="🤧 Ya, batuk berdahak" onClick={() => next({ ispa_batuk: "berdahak" }, "ispa_sesak")} accent={C.accent} />
+            <CBtn label="✅ Tidak batuk" onClick={() => next({ ispa_batuk: "tidak" }, "ispa_sesak")} accent={C.accent} />
+          </QCard>
+        )}
+
+        {step === "ispa_sesak" && (
+          <QCard q="Apakah sesak napas?" hint="Napas terasa berat, sulit bernapas dalam" accent={C.accent}>
+            <CBtn label="⚠️ Ya" onClick={() => next({ ispa_sesak: true }, "ispa_mata")} accent={C.accent} />
+            <CBtn label="✅ Tidak" onClick={() => next({ ispa_sesak: false }, "ispa_mata")} accent={C.accent} />
+          </QCard>
+        )}
+
+        {step === "ispa_mata" && (
+          <QCard q="Apakah mata perih atau berair?" hint="Terasa pedas, gatal, atau sering berair" accent={C.accent}>
+            <CBtn label="⚠️ Ya" onClick={() => next({ ispa_mata: true }, "ispa_paparan")} accent={C.accent} />
+            <CBtn label="✅ Tidak" onClick={() => next({ ispa_mata: false }, "ispa_paparan")} accent={C.accent} />
+          </QCard>
+        )}
+
+        {step === "ispa_paparan" && (
+          <QCard q="Apakah tinggal atau bekerja dekat gunung berapi aktif atau area kebakaran hutan?" hint="Terpapar asap tebal, abu vulkanik, atau debu" accent={C.accent}>
+            <CBtn label="🌋 Ya" onClick={() => {
+              const updated = { ...triage, ispa_paparan: true };
+              setTriage(updated); finish(updated);
+            }} accent={C.accent} />
+            <CBtn label="✅ Tidak" onClick={() => {
+              const updated = { ...triage, ispa_paparan: false };
               setTriage(updated); finish(updated);
             }} accent={C.accent} />
           </QCard>
