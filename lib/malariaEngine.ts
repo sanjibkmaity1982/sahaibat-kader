@@ -15,7 +15,8 @@ export interface MalariaInput {
   danger_signs: string[];               // array of: 'kesadaran', 'kejang', 'lemas', 'kuning', 'kencing_sedikit', 'sesak'
   rdt_result: '1' | '2' | '3';        // 1=positif, 2=negatif, 3=belum
   is_pregnant: boolean;
-  is_under5: boolean;
+ is_under5: boolean;
+  paparan_asap: boolean;             // tinggal dekat gunung berapi / kebakaran hutan
 }
 
 export interface MalariaResult {
@@ -145,7 +146,17 @@ export function runMalariaTriage(input: MalariaInput, chwName?: string): Malaria
     lines.push('3. Minum air putih cukup');
     lines.push('4. Jika gejala memburuk → ke Puskesmas');
   }
-
+  
+// Paparan asap
+  if (input.paparan_asap) {
+    lines.push('');
+    lines.push('🌋 PAPARAN ASAP GUNUNG BERAPI / KEBAKARAN');
+    lines.push('• Asap memperburuk gejala pernapasan bersamaan malaria');
+    lines.push('• Gunakan masker saat keluar rumah');
+    lines.push('• Hindari aktivitas luar saat asap tebal');
+    lines.push('• Cuci muka & hidung setelah dari luar');
+  }
+  
   // Prevention
   lines.push('');
   lines.push('🛡️ PENCEGAHAN MALARIA');
