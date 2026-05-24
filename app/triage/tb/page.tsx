@@ -107,6 +107,7 @@ export default function TBTriagePage() {
       household_contacts: finalState.household_contacts,
       household_children_u5: finalState.household_children_u5,
       household_cough: finalState.household_cough,
+      paparan_asap: false,
     };
 
     const res = runTBTriage(engineInput, identity.name);
