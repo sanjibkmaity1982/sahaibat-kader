@@ -46,7 +46,7 @@ const empty: State = {
   hiv_positive: false, diabetes: false, smoking: false, close_contact: false,
   treatment_status: null, oat_month: null, oat_adherence: null, oat_side_effects: [],
   household_contacts: null, household_children_u5: null, household_cough: false,
-  paparan_asap: finalState.paparan_asap,
+  paparan_asap: false,
     };
 
 function riskColor(l: string) { return l === "HIGH" ? C.red : l === "MEDIUM" ? C.yellow : C.green; }
