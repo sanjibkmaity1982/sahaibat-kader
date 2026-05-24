@@ -4,6 +4,7 @@
 // Deterministic, zero AI, fully offline.
 
 import { generateIsiPiringku } from './counselling/isiPiringku';
+import { runIspaScreen, type IspaInput } from './ispaScreen';
 
 export interface ProduktifLansiaInput {
   patientName: string;
@@ -34,6 +35,12 @@ export interface ProduktifLansiaInput {
   // Geriatri (lansia ≥60 only)
   geriatri_adl: '1' | '2' | '3' | null;  // 1=mandiri, 2=perlu bantuan sebagian, 3=sangat tergantung
   geriatri_memory: '1' | '2' | '3' | null; // 1=baik, 2=kadang lupa, 3=sering lupa/bingung
+  // ISPA / respiratory screening
+  ispa_batuk: 'kering' | 'berdahak' | 'tidak';
+  ispa_sesak: boolean;
+  ispa_mata: boolean;
+  ispa_paparan: boolean;
+  ispa_durasi: number | null;
 }
 
 export interface ProduktifLansiaResult {
@@ -51,6 +58,7 @@ export interface ProduktifLansiaResult {
   followUpDays: number;
   reportText: string;
   isLansia: boolean;
+  ispaRisk: 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';
 }
 
 function classifyBMI(bmi: number): 'underweight' | 'normal' | 'overweight' | 'obese' {
@@ -116,8 +124,14 @@ export function runProduktifLansiaTriage(input: ProduktifLansiaInput, chwName?: 
     (isLansia && input.geriatri_adl === '2')
   );
 
-  const riskLevel = isHigh ? 'HIGH' : isMedium ? 'MEDIUM' : 'LOW';
-  const referNow = isHigh;
+// ISPA screening
+  const ispaResult = runIspaScreen(
+    { batuk: input.ispa_batuk, sesakNapas: input.ispa_sesak, mataPerih: input.ispa_mata, paparanAsap: input.ispa_paparan, durasiHari: input.ispa_durasi },
+    { isChild: false, isPregnant: false, isElderly: isLansia }
+  );
+
+  const riskLevel = (isHigh || ispaResult.referNow) ? 'HIGH' : (isMedium || ispaResult.ispaRisk === 'MEDIUM') ? 'MEDIUM' : 'LOW';
+  const referNow = isHigh || ispaResult.referNow;
   const followUpDays = isHigh ? 0 : isMedium ? 14 : 90;
 
   // Report
@@ -278,12 +292,19 @@ export function runProduktifLansiaTriage(input: ProduktifLansiaInput, chwName?: 
 
   lines.push('');
   if (chwName) lines.push(`Kader: ${chwName}`);
+  // ISPA report
+  if (ispaResult.reportSection) {
+    lines.push('');
+    lines.push(ispaResult.reportSection);
+  }
+
   lines.push('Bukan diagnosis. SahAIbat Kader v1.');
 
   return {
     riskLevel, bmi, bmiCategory: bmiCat, bpCategory: bpCat,
     gdsCategory: gdsCat, waistFlag, tbSuspect, ppokSuspect,
     mhFlag, geriatriFlag, referNow, followUpDays, isLansia,
-    reportText: lines.join('\n'),
+   reportText: lines.join('\n'),
+    ispaRisk: ispaResult.ispaRisk,
   };
 }
