@@ -23,9 +23,9 @@ type Step =
   | "smoking" | "activity" | "eating" | "kb"
   | "tb1" | "tb2" | "ppok"
   | "mh1" | "mh2" | "mh3"
-  | "geriatri_adl" | "geriatri_memory"
+| "geriatri_adl" | "geriatri_memory"
+  | "ispa_batuk" | "ispa_sesak" | "ispa_mata" | "ispa_paparan"
   | "result";
-
 interface State {
   patientName: string; nik: string; age_years: number | null;
   gender: "male" | "female" | null;
@@ -38,6 +38,8 @@ interface State {
   ppok_chronic_cough: boolean;
   mh_sleep_difficulty: boolean; mh_sad_hopeless: boolean; mh_lost_interest: boolean;
   geriatri_adl: "1" | "2" | "3" | null; geriatri_memory: "1" | "2" | "3" | null;
+  ispa_batuk: "kering" | "berdahak" | "tidak" | null;
+  ispa_sesak: boolean; ispa_mata: boolean; ispa_paparan: boolean;
 }
 
 const empty: State = {
@@ -47,7 +49,8 @@ const empty: State = {
   tb_cough_2wk: false, tb_night_sweats: false, tb_weight_loss: false,
   ppok_chronic_cough: false,
   mh_sleep_difficulty: false, mh_sad_hopeless: false, mh_lost_interest: false,
-  geriatri_adl: null, geriatri_memory: null,
+ geriatri_adl: null, geriatri_memory: null,
+  ispa_batuk: null, ispa_sesak: false, ispa_mata: false, ispa_paparan: false,
 };
 
 function riskColor(l: string) { return l === "HIGH" ? C.red : l === "MEDIUM" ? C.yellow : C.green; }
@@ -122,7 +125,12 @@ export default function ProduktifTriagePage() {
       mh_sad_hopeless: finalState.mh_sad_hopeless,
       mh_lost_interest: finalState.mh_lost_interest,
       geriatri_adl: finalState.geriatri_adl,
-      geriatri_memory: finalState.geriatri_memory,
+     geriatri_memory: finalState.geriatri_memory,
+      ispa_batuk: finalState.ispa_batuk ?? 'tidak',
+      ispa_sesak: finalState.ispa_sesak,
+      ispa_mata: finalState.ispa_mata,
+      ispa_paparan: finalState.ispa_paparan,
+      ispa_durasi: null,
     };
 
     const res = runProduktifLansiaTriage(engineInput, identity.name);
@@ -213,11 +221,11 @@ export default function ProduktifTriagePage() {
         {step === "mh3" && <Q q="Apakah kehilangan minat pada hal yang biasa dinikmati?" a={C.accent}><YN y={() => {
           const updated = { ...s, mh_lost_interest: true };
           setS(updated);
-          if ((updated.age_years ?? 0) >= 60) { setStep("geriatri_adl"); } else { finish(updated); }
+         if ((updated.age_years ?? 0) >= 60) { setStep("geriatri_adl"); } else { setStep("ispa_batuk"); }
         }} n={() => {
           const updated = { ...s, mh_lost_interest: false };
           setS(updated);
-          if ((updated.age_years ?? 0) >= 60) { setStep("geriatri_adl"); } else { finish(updated); }
+         if ((updated.age_years ?? 0) >= 60) { setStep("geriatri_adl"); } else { setStep("ispa_batuk"); }
         }} a={C.accent} /></Q>}
 
         {step === "geriatri_adl" && <Q q="Tingkat kemandirian lansia?" h="Apakah bisa mandi, makan, berpakaian, ke toilet sendiri?" a={C.accent}>
@@ -227,9 +235,27 @@ export default function ProduktifTriagePage() {
         </Q>}
 
         {step === "geriatri_memory" && <Q q="Bagaimana daya ingat lansia?" h="Apakah sering lupa nama orang, tempat, atau kejadian baru?" a={C.accent}>
-          <CB l="✅ Baik" sub="Ingatan masih tajam" o={() => { const u = { ...s, geriatri_memory: "1" as const }; setS(u); finish(u); }} a={C.accent} />
+          <CB l="✅ Baik" sub="Ingatan masih tajam" o={() => { const u = { ...s, geriatri_memory: "1" as const }; setS(u); setStep("ispa_batuk");}} a={C.accent} />
           <CB l="⚠️ Kadang lupa" sub="Sesekali lupa hal kecil" o={() => { const u = { ...s, geriatri_memory: "2" as const }; setS(u); finish(u); }} a={C.accent} />
           <CB l="🔴 Sering lupa / bingung" sub="Sering tidak ingat, bingung tempat/waktu" o={() => { const u = { ...s, geriatri_memory: "3" as const }; setS(u); finish(u); }} a={C.accent} />
+        </Q>}
+
+        {step === "ispa_batuk" && <Q q="Apakah batuk?" h="Batuk kering (tanpa dahak) atau batuk berdahak?" a={C.accent}>
+          <CB l="😷 Ya, batuk kering" o={() => next({ ispa_batuk: "kering" }, "ispa_sesak")} a={C.accent} />
+          <CB l="🤧 Ya, batuk berdahak" o={() => next({ ispa_batuk: "berdahak" }, "ispa_sesak")} a={C.accent} />
+          <CB l="✅ Tidak batuk" o={() => next({ ispa_batuk: "tidak" }, "ispa_sesak")} a={C.accent} />
+        </Q>}
+
+        {step === "ispa_sesak" && <Q q="Apakah sesak napas?" h="Napas terasa berat, sulit bernapas dalam" a={C.accent}>
+          <YN y={() => next({ ispa_sesak: true }, "ispa_mata")} n={() => next({ ispa_sesak: false }, "ispa_mata")} a={C.accent} />
+        </Q>}
+
+        {step === "ispa_mata" && <Q q="Apakah mata perih atau berair?" h="Terasa pedas, gatal, atau sering berair" a={C.accent}>
+          <YN y={() => next({ ispa_mata: true }, "ispa_paparan")} n={() => next({ ispa_mata: false }, "ispa_paparan")} a={C.accent} />
+        </Q>}
+
+        {step === "ispa_paparan" && <Q q="Apakah tinggal atau bekerja dekat gunung berapi aktif atau area kebakaran hutan?" h="Terpapar asap tebal, abu vulkanik, atau debu" a={C.accent}>
+          <YN y={() => { const u = { ...s, ispa_paparan: true }; setS(u); finish(u); }} n={() => { const u = { ...s, ispa_paparan: false }; setS(u); finish(u); }} a={C.accent} />
         </Q>}
 
         {step === "result" && result && (
