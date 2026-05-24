@@ -4,7 +4,7 @@
 // Competencies: 4a (Isi Piringku + aktivitas fisik), 4b (TTD + Hb), 4c (merokok/NAPZA).
 // Deterministic, zero AI, fully offline.
 
-import { generateIsiPiringku } from './counselling/isiPiringku';
+
 import { generateIsiPiringku } from './counselling/isiPiringku';
 import { runIspaScreen } from './ispaScreen';
 
