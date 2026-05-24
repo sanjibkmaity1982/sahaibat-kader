@@ -4,6 +4,8 @@
 // UPDATED: Head circumference (lingkar kepala) — Kemenkes 2c.
 // All WHO classification logic unchanged — zero AI cost, fully offline.
 
+import { generateIsiPiringku } from './counselling/isiPiringku';
+import { runIspaScreen } from './ispaScreen';
 import {
   computeWHOClassification,
   interpretMUAC,
@@ -42,7 +44,13 @@ export interface OfflineTriageInput {
     visit_date: string;
   } | null;
 
-  consecutiveDeclines?: number;
+ consecutiveDeclines?: number;
+  // ISPA screening
+  ispa_batuk?: 'kering' | 'berdahak' | 'tidak';
+  ispa_sesak?: boolean;
+  ispa_mata?: boolean;
+  ispa_paparan?: boolean;
+  ispa_durasi?: number | null;
 }
 
 export interface OfflineTriageResult {
@@ -61,6 +69,7 @@ export interface OfflineTriageResult {
   velocityFlag: VelocityFlag;
   velocityMessage: string;
   cmamConfirmNeeded: boolean;
+  ispaRisk: 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';
 }
 
 // ── Head circumference classification (simplified WHO reference) ──────────
@@ -159,8 +168,14 @@ export function runGrowthTriage(input: OfflineTriageInput): OfflineTriageResult 
     wlz === 'wasted'
   );
 
-  const riskLevel = isSevere ? 'HIGH' : isModerate ? 'MEDIUM' : 'LOW';
-  const referNow = isSevere || headCircFlag === 'micro';
+// ISPA screening — sesak napas in child <5 = HIGH (pneumonia risk)
+  const ispaResult = runIspaScreen(
+    { batuk: input.ispa_batuk ?? 'tidak', sesakNapas: input.ispa_sesak ?? false, mataPerih: input.ispa_mata ?? false, paparanAsap: input.ispa_paparan ?? false, durasiHari: input.ispa_durasi ?? null },
+    { isChild: true, isPregnant: false, isElderly: false }
+  );
+
+  const riskLevel = (isSevere || ispaResult.referNow) ? 'HIGH' : (isModerate || ispaResult.ispaRisk === 'MEDIUM') ? 'MEDIUM' : 'LOW';
+  const referNow = isSevere || headCircFlag === 'micro' || ispaResult.referNow;
 
   const followUpDays = isSevere ? 0
     : muacCat === 'mam' ? 7
@@ -267,6 +282,11 @@ export function runGrowthTriage(input: OfflineTriageInput): OfflineTriageResult 
     lines.push(velocityMessage);
   }
 
+ if (ispaResult.reportSection) {
+    lines.push('');
+    lines.push(ispaResult.reportSection);
+  }
+
   lines.push('Bukan diagnosis. SahAIbat Kader v1.');
 
   return {
@@ -281,6 +301,7 @@ export function runGrowthTriage(input: OfflineTriageInput): OfflineTriageResult 
     reportText: lines.join('\n'),
     velocityFlag: velocityResult.flag,
     velocityMessage,
-    cmamConfirmNeeded,
+   cmamConfirmNeeded,
+    ispaRisk: ispaResult.ispaRisk,
   };
 }
