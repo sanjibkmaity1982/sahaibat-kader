@@ -19,8 +19,10 @@ type Step =
   | "name" | "gestasi" | "lila" | "perdarahan" | "nyeri_perut"
   | "sakit_kepala" | "demam" | "muntah" | "gerak_bayi"
   | "sesak" | "bengkak" | "keputihan"
-  | "ttd" | "ttd_side"
-  | "td" | "result";
+| "ttd" | "ttd_side"
+  | "td"
+  | "ispa_batuk" | "ispa_sesak" | "ispa_mata" | "ispa_paparan"
+  | "result";
 
 const emptyInput: MaternalInput = {
   gestasi_weeks: null, lila_cm: null, perdarahan: false, nyeri_perut: false,
@@ -29,6 +31,8 @@ const emptyInput: MaternalInput = {
   bengkak_mendadak: false, keputihan_abnormal: false,
   ttd_adherence: null, ttd_side_effects: null,
   td_sys: null, td_dia: null,
+  ispa_batuk: 'tidak', ispa_sesak: false, ispa_mata: false,
+  ispa_paparan: false, ispa_durasi: null,
 };
 
 export default function MaternalTriagePage() {
@@ -382,7 +386,7 @@ export default function MaternalTriagePage() {
           </QCard>
         )}
 
-        {/* ── TD ── */}
+      {/* ── TD ── */}
         {step === "td" && (
           <QCard title="Tekanan darah ibu?" hint="Ketik contoh: 120/80 — atau SKIP jika tidak ada alat" accent={C.accent}>
             <TInput
@@ -402,15 +406,43 @@ export default function MaternalTriagePage() {
                 }
                 setInput(updated);
                 setTextInput("");
-                finish(updated);
+                setStep("ispa_batuk");
               }}
               accent={C.accent}
             />
-            <button onClick={() => { setInput(prev => ({ ...prev, td_sys: null, td_dia: null })); finish({ ...input, td_sys: null, td_dia: null }); }} style={{
+            <button onClick={() => { setInput(prev => ({ ...prev, td_sys: null, td_dia: null })); setStep("ispa_batuk"); }} style={{
               width: "100%", padding: 12, borderRadius: 10, marginTop: 8,
               background: "transparent", border: `1px solid ${C.border}`,
               color: C.dim, fontSize: 14, cursor: "pointer",
             }}>SKIP — tidak ada tensimeter</button>
+          </QCard>
+        )}
+
+        {/* ── ISPA SCREENING ── */}
+        {step === "ispa_batuk" && (
+          <QCard title="Apakah ibu batuk?" hint="Batuk kering (tanpa dahak) atau batuk berdahak?" accent={C.accent}>
+            <ChoiceBtn label="😷 Ya, batuk kering" onClick={() => { setInput(prev => ({ ...prev, ispa_batuk: 'kering' as const })); setStep("ispa_sesak"); }} accent={C.accent} />
+            <ChoiceBtn label="🤧 Ya, batuk berdahak" onClick={() => { setInput(prev => ({ ...prev, ispa_batuk: 'berdahak' as const })); setStep("ispa_sesak"); }} accent={C.accent} />
+            <ChoiceBtn label="✅ Tidak batuk" onClick={() => { setInput(prev => ({ ...prev, ispa_batuk: 'tidak' as const })); setStep("ispa_sesak"); }} accent={C.accent} />
+          </QCard>
+        )}
+
+        {step === "ispa_sesak" && (
+          <QCard title="Apakah sesak napas?" hint="Napas terasa berat, sulit bernapas dalam (selain dari jantung berdebar)" accent={C.accent}>
+            <YNButtons onYes={() => { setInput(prev => ({ ...prev, ispa_sesak: true })); setStep("ispa_mata"); }} onNo={() => { setInput(prev => ({ ...prev, ispa_sesak: false })); setStep("ispa_mata"); }} accent={C.accent} />
+          </QCard>
+        )}
+
+        {step === "ispa_mata" && (
+          <QCard title="Apakah mata perih atau berair?" hint="Terasa pedas, gatal, atau sering berair" accent={C.accent}>
+            <YNButtons onYes={() => { setInput(prev => ({ ...prev, ispa_mata: true })); setStep("ispa_paparan"); }} onNo={() => { setInput(prev => ({ ...prev, ispa_mata: false })); setStep("ispa_paparan"); }} accent={C.accent} />
+          </QCard>
+        )}
+
+        {step === "ispa_paparan" && (
+          <QCard title="Apakah ibu tinggal dekat gunung berapi aktif atau area kebakaran hutan?" hint="Terpapar asap tebal, abu vulkanik, atau debu" accent={C.accent}>
+            <ChoiceBtn label="🌋 Ya" onClick={() => { const updated = { ...input, ispa_paparan: true }; setInput(updated); finish(updated); }} accent={C.accent} />
+            <ChoiceBtn label="✅ Tidak" onClick={() => { const updated = { ...input, ispa_paparan: false }; setInput(updated); finish(updated); }} accent={C.accent} />
           </QCard>
         )}
 
