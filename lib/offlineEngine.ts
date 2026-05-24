@@ -4,7 +4,7 @@
 // UPDATED: Head circumference (lingkar kepala) — Kemenkes 2c.
 // All WHO classification logic unchanged — zero AI cost, fully offline.
 
-import { generateIsiPiringku } from './counselling/isiPiringku';
+
 import { runIspaScreen } from './ispaScreen';
 import {
   computeWHOClassification,
