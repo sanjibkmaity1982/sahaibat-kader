@@ -18,12 +18,16 @@ const C = {
 type Step =
   | "name" | "days_pp" | "perdarahan" | "demam"
   | "cairan_berbau" | "nyeri_ulu_hati" | "payudara"
-  | "depresi" | "asi" | "result";
+  | "depresi" | "asi"
+  | "ispa_batuk" | "ispa_sesak" | "ispa_mata" | "ispa_paparan"
+  | "result";
 
 const emptyInput: PostpartumInput = {
   days_postpartum: null, perdarahan: false, demam: false,
   cairan_berbau: false, nyeri_ulu_hati: false,
   payudara_bengkak: false, depresi: false, asi_masalah: false,
+  ispa_batuk: 'tidak', ispa_sesak: false, ispa_mata: false,
+  ispa_paparan: false, ispa_durasi: null,
 };
 
 export default function PostpartumTriagePage() {
@@ -175,11 +179,39 @@ export default function PostpartumTriagePage() {
           </QCard>
         )}
 
-        {step === "asi" && (
+       {step === "asi" && (
           <QCard title="Ada kesulitan menyusui?" hint="Bayi tidak mau menyusu, ASI tidak keluar, atau ibu kesakitan saat menyusui" accent={C.accent}>
             <YNButtons
-              onYes={() => { const u = { ...input, asi_masalah: true }; setInput(u); finish(u); }}
-              onNo={() => { const u = { ...input, asi_masalah: false }; setInput(u); finish(u); }}
+              onYes={() => { setInput(prev => ({ ...prev, asi_masalah: true })); setStep("ispa_batuk"); }}
+              onNo={() => { setInput(prev => ({ ...prev, asi_masalah: false })); setStep("ispa_batuk"); }}
+              accent={C.accent}
+            />
+          </QCard>
+        )}
+
+        {step === "ispa_batuk" && (
+          <QCard title="Apakah ibu batuk?" hint="Batuk kering atau batuk berdahak?" accent={C.accent}>
+            <YNButtons onYes={() => { setInput(prev => ({ ...prev, ispa_batuk: 'kering' as const })); setStep("ispa_sesak"); }} onNo={() => { setInput(prev => ({ ...prev, ispa_batuk: 'tidak' as const })); setStep("ispa_sesak"); }} accent={C.accent} />
+          </QCard>
+        )}
+
+        {step === "ispa_sesak" && (
+          <QCard title="Apakah sesak napas?" hint="Napas terasa berat, sulit bernapas dalam" accent={C.accent}>
+            <YNButtons onYes={() => { setInput(prev => ({ ...prev, ispa_sesak: true })); setStep("ispa_mata"); }} onNo={() => { setInput(prev => ({ ...prev, ispa_sesak: false })); setStep("ispa_mata"); }} accent={C.accent} />
+          </QCard>
+        )}
+
+        {step === "ispa_mata" && (
+          <QCard title="Apakah mata perih atau berair?" accent={C.accent}>
+            <YNButtons onYes={() => { setInput(prev => ({ ...prev, ispa_mata: true })); setStep("ispa_paparan"); }} onNo={() => { setInput(prev => ({ ...prev, ispa_mata: false })); setStep("ispa_paparan"); }} accent={C.accent} />
+          </QCard>
+        )}
+
+        {step === "ispa_paparan" && (
+          <QCard title="Apakah ibu tinggal dekat gunung berapi aktif atau area kebakaran hutan?" hint="Terpapar asap tebal, abu vulkanik, atau debu" accent={C.accent}>
+            <YNButtons
+              onYes={() => { const u = { ...input, ispa_paparan: true }; setInput(u); finish(u); }}
+              onNo={() => { const u = { ...input, ispa_paparan: false }; setInput(u); finish(u); }}
               accent={C.accent}
             />
           </QCard>
