@@ -36,8 +36,8 @@ const empty: State = {
   patientName: "", age_years: null, gender: null, endemic_area: null,
   fever_days: null, fever_pattern: null, symptoms: [], danger_signs: [],
   rdt_result: null, is_pregnant: false, is_under5: false,
-  paparan_asap: finalState.paparan_asap,
-    };
+  paparan_asap: false,
+};
 
 function riskColor(l: string) { return l === "HIGH" ? C.red : l === "MEDIUM" ? C.yellow : C.green; }
 
