@@ -6,6 +6,7 @@
 // Deterministic, zero AI, zero network.
 
 import { generateIsiPiringku } from './counselling/isiPiringku';
+import { runIspaScreen } from './ispaScreen';
 
 export interface MaternalInput {
   gestasi_weeks: number | null;
@@ -23,6 +24,12 @@ export interface MaternalInput {
   ttd_side_effects: '1' | '2' | '3' | null; // 1=mual, 2=konstipasi, 3=tidak ada
   td_sys: number | null;
   td_dia: number | null;
+  // ISPA screening
+  ispa_batuk: 'kering' | 'berdahak' | 'tidak';
+  ispa_sesak: boolean;
+  ispa_mata: boolean;
+  ispa_paparan: boolean;
+  ispa_durasi: number | null;
 }
 
 export type MaternalRisk = 'darurat' | 'tinggi' | 'sedang' | 'rendah';
@@ -36,6 +43,7 @@ export interface MaternalResult {
   kekStatus: 'kek' | 'normal' | 'not_measured';
   reportText: string;
   trimester: 1 | 2 | 3 | null;
+  ispaRisk: 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';
 }
 
 function classifyKEK(lilaCm: number | null): 'kek' | 'normal' | 'not_measured' {
@@ -90,10 +98,16 @@ export function runMaternalTriage(
     : gestasi <= 27 ? 2
     : 3;
 
-  const riskLevel = risk === 'darurat' || risk === 'tinggi' ? 'HIGH'
-    : risk === 'sedang' ? 'MEDIUM' : 'LOW';
+// ISPA screening — sesak napas in pregnancy is always HIGH
+  const ispaResult = runIspaScreen(
+    { batuk: input.ispa_batuk, sesakNapas: input.ispa_sesak, mataPerih: input.ispa_mata, paparanAsap: input.ispa_paparan, durasiHari: input.ispa_durasi },
+    { isChild: false, isPregnant: true, isElderly: false }
+  );
 
-  const referNow = risk === 'darurat' || risk === 'tinggi';
+  const riskLevel = (risk === 'darurat' || risk === 'tinggi' || ispaResult.referNow) ? 'HIGH'
+    : (risk === 'sedang' || ispaResult.ispaRisk === 'MEDIUM') ? 'MEDIUM' : 'LOW';
+
+  const referNow = risk === 'darurat' || risk === 'tinggi' || ispaResult.referNow;
   const followUpDays = risk === 'darurat' ? 0
     : risk === 'tinggi' ? 0
     : risk === 'sedang' ? 2 : 30;
@@ -224,11 +238,17 @@ export function runMaternalTriage(
 
   lines.push('');
   if (chwName) lines.push(`Kader: ${chwName}`);
+  if (ispaResult.reportSection) {
+    lines.push('');
+    lines.push(ispaResult.reportSection);
+  }
+
   lines.push('Bukan diagnosis. SahAIbat Kader v1.');
 
   return {
     risk, riskLevel, referNow, followUpDays,
     dangersFound, kekStatus, trimester,
     reportText: lines.join('\n'),
+    ispaRisk: ispaResult.ispaRisk,
   };
 }
