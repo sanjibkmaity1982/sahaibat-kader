@@ -14,7 +14,9 @@ import { syncPendingCases } from "@/lib/syncClient";
 
 type Step =
   | "home" | "child_name" | "nik" | "age_method" | "age_dob" | "age_months" | "age_years"
-  | "gender" | "weight" | "height" | "muac" | "headcirc" | "feeding" | "milestone" | "result";
+ | "gender" | "weight" | "height" | "muac" | "headcirc" | "feeding" | "milestone"
+  | "ispa_batuk" | "ispa_sesak" | "ispa_mata" | "ispa_paparan"
+  | "result";
 
 interface TriageState {
   childName: string;
@@ -27,8 +29,12 @@ interface TriageState {
   heightCm: number | null;
   muacCm: number | null;
   headCircCm: number | null;
-  feedingFreq: "1" | "2" | "3" | null;
+ feedingFreq: "1" | "2" | "3" | null;
   milestoneScore: "1" | "2" | "3" | null;
+  ispa_batuk: "kering" | "berdahak" | "tidak" | null;
+  ispa_sesak: boolean;
+  ispa_mata: boolean;
+  ispa_paparan: boolean;
 }
 
 const emptyState: TriageState = {
@@ -36,7 +42,8 @@ const emptyState: TriageState = {
   ageSource: "manual_months", gender: null,
   weightKg: null, heightCm: null, muacCm: null,
   headCircCm: null,
-  feedingFreq: null, milestoneScore: null,
+ feedingFreq: null, milestoneScore: null,
+  ispa_batuk: null, ispa_sesak: false, ispa_mata: false, ispa_paparan: false,
 };
 
 const C = {
@@ -200,6 +207,11 @@ export default function ChildTriagePage() {
       milestoneScore,
       childName: t.childName,
       chwName: identity?.name,
+      ispa_batuk: t.ispa_batuk ?? 'tidak',
+      ispa_sesak: t.ispa_sesak,
+      ispa_mata: t.ispa_mata,
+      ispa_paparan: t.ispa_paparan,
+      ispa_durasi: null,
     });
 
     const queued: QueuedCase = {
@@ -495,9 +507,38 @@ export default function ChildTriagePage() {
 
         {step === "milestone" && (
           <QCard question="Perkembangan anak sesuai usia?" hint="Berdasarkan SDIDTK untuk usia ini">
-            <CBtn label="1 — Sudah semua" sub="Semua perkembangan sesuai usia" onClick={() => finishTriage("1")} />
-            <CBtn label="2 — Beberapa belum" sub="Sebagian perkembangan belum tercapai" onClick={() => finishTriage("2")} />
-            <CBtn label="3 — Banyak yang belum" sub="Banyak perkembangan belum tercapai" onClick={() => finishTriage("3")} />
+            <CBtn label="1 — Sudah semua" sub="Semua perkembangan sesuai usia" onClick={() => { setTriage(prev => ({ ...prev, milestoneScore: "1" })); setStep("ispa_batuk"); }} />
+            <CBtn label="2 — Beberapa belum" sub="Sebagian perkembangan belum tercapai" onClick={() => { setTriage(prev => ({ ...prev, milestoneScore: "2" })); setStep("ispa_batuk"); }} />
+            <CBtn label="3 — Banyak yang belum" sub="Banyak perkembangan belum tercapai" onClick={() => { setTriage(prev => ({ ...prev, milestoneScore: "3" })); setStep("ispa_batuk"); }} />
+          </QCard>
+        )}
+
+        {step === "ispa_batuk" && (
+          <QCard question="Apakah anak batuk?" hint="Batuk kering atau batuk berdahak?">
+            <CBtn label="😷 Ya, batuk kering" onClick={() => next({ ispa_batuk: "kering" }, "ispa_sesak")} />
+            <CBtn label="🤧 Ya, batuk berdahak" onClick={() => next({ ispa_batuk: "berdahak" }, "ispa_sesak")} />
+            <CBtn label="✅ Tidak batuk" onClick={() => next({ ispa_batuk: "tidak" }, "ispa_sesak")} />
+          </QCard>
+        )}
+
+        {step === "ispa_sesak" && (
+          <QCard question="Apakah anak sesak napas?" hint="Napas cepat, tarikan dinding dada, sulit bernapas">
+            <CBtn label="⚠️ Ya — sesak napas" onClick={() => next({ ispa_sesak: true }, "ispa_mata")} />
+            <CBtn label="✅ Tidak" onClick={() => next({ ispa_sesak: false }, "ispa_mata")} />
+          </QCard>
+        )}
+
+        {step === "ispa_mata" && (
+          <QCard question="Apakah mata anak perih atau berair?" hint="Terasa pedas, gatal, atau sering berair">
+            <CBtn label="⚠️ Ya" onClick={() => next({ ispa_mata: true }, "ispa_paparan")} />
+            <CBtn label="✅ Tidak" onClick={() => next({ ispa_mata: false }, "ispa_paparan")} />
+          </QCard>
+        )}
+
+        {step === "ispa_paparan" && (
+          <QCard question="Apakah anak tinggal dekat gunung berapi aktif atau area kebakaran hutan?" hint="Terpapar asap tebal, abu vulkanik, atau debu">
+            <CBtn label="🌋 Ya" onClick={() => { const t2 = { ...triage, ispa_paparan: true }; setTriage(t2); finishTriage(t2.milestoneScore as "1"|"2"|"3"); }} />
+            <CBtn label="✅ Tidak" onClick={() => { const t2 = { ...triage, ispa_paparan: false }; setTriage(t2); finishTriage(t2.milestoneScore as "1"|"2"|"3"); }} />
           </QCard>
         )}
 
