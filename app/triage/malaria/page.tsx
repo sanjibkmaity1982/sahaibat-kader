@@ -84,7 +84,8 @@ export default function MalariaTriagePage() {
       danger_signs: finalState.danger_signs,
       rdt_result: finalState.rdt_result,
       is_pregnant: finalState.is_pregnant,
-      is_under5: finalState.is_under5,
+     is_under5: finalState.is_under5,
+      paparan_asap: false,
     };
 
     const res = runMalariaTriage(engineInput, identity.name);
