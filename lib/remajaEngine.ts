@@ -5,6 +5,8 @@
 // Deterministic, zero AI, fully offline.
 
 import { generateIsiPiringku } from './counselling/isiPiringku';
+import { generateIsiPiringku } from './counselling/isiPiringku';
+import { runIspaScreen } from './ispaScreen';
 
 export interface RemajaInput {
   patientName: string;
@@ -23,6 +25,12 @@ export interface RemajaInput {
   activity_level: '1' | '2' | '3';   // 1=ya 60min/hari, 2=kadang, 3=jarang
   eating_pattern: '1' | '2' | '3';   // 1=sesuai isi piringku, 2=kadang, 3=tidak
   smoking: '1' | '2' | '3';          // 1=ya, 2=pernah, 3=tidak
+  // ISPA screening
+  ispa_batuk: 'kering' | 'berdahak' | 'tidak';
+  ispa_sesak: boolean;
+  ispa_mata: boolean;
+  ispa_paparan: boolean;
+  ispa_durasi: number | null;
 }
 
 export interface RemajaResult {
@@ -34,6 +42,7 @@ export interface RemajaResult {
   referNow: boolean;
   followUpDays: number;
   reportText: string;
+  ispaRisk: 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';
 }
 
 // ── BMI-for-age simplified classification (WHO adolescent reference) ──
@@ -106,8 +115,14 @@ export function runRemajaTriage(input: RemajaInput, chwName?: string): RemajaRes
     (input.eating_pattern === '3' && input.activity_level === '3')
   );
 
-  const riskLevel = isHigh ? 'HIGH' : isMedium ? 'MEDIUM' : 'LOW';
-  const referNow = isHigh;
+ // ISPA screening
+  const ispaResult = runIspaScreen(
+    { batuk: input.ispa_batuk, sesakNapas: input.ispa_sesak, mataPerih: input.ispa_mata, paparanAsap: input.ispa_paparan, durasiHari: input.ispa_durasi },
+    { isChild: input.age_years < 12, isPregnant: false, isElderly: false }
+  );
+
+  const riskLevel = (isHigh || ispaResult.referNow) ? 'HIGH' : (isMedium || ispaResult.ispaRisk === 'MEDIUM') ? 'MEDIUM' : 'LOW';
+  const referNow = isHigh || ispaResult.referNow;
   const followUpDays = isHigh ? 0 : isMedium ? 14 : 90;
 
   // Build report
@@ -230,6 +245,11 @@ export function runRemajaTriage(input: RemajaInput, chwName?: string): RemajaRes
 
   lines.push('');
   if (chwName) lines.push(`Kader: ${chwName}`);
+  if (ispaResult.reportSection) {
+    lines.push('');
+    lines.push(ispaResult.reportSection);
+  }
+
   lines.push('Bukan diagnosis. SahAIbat Kader v1.');
 
   return {
@@ -241,5 +261,6 @@ export function runRemajaTriage(input: RemajaInput, chwName?: string): RemajaRes
     referNow,
     followUpDays,
     reportText: lines.join('\n'),
+    ispaRisk: ispaResult.ispaRisk,
   };
 }
