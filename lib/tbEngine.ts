@@ -29,7 +29,8 @@ export interface TBInput {
   // Contact tracing
   household_contacts: number | null;  // jumlah orang serumah
   household_children_u5: number | null; // anak <5 tahun serumah
-  household_cough: boolean;          // ada orang serumah batuk lama
+ household_cough: boolean;          // ada orang serumah batuk lama
+  paparan_asap: boolean;             // tinggal dekat gunung berapi / kebakaran hutan
 }
 
 export interface TBResult {
@@ -214,6 +215,17 @@ export function runTBTriage(input: TBInput, chwName?: string): TBResult {
       lines.push('• Kontak serumah dengan TB — pantau gejala selama 2 tahun');
     }
     lines.push('• Jika batuk >2 minggu muncul → segera ke Puskesmas');
+  }
+
+// Paparan asap
+  if (input.paparan_asap) {
+    lines.push('');
+    lines.push('🌋 PAPARAN ASAP GUNUNG BERAPI / KEBAKARAN');
+    lines.push('• Asap dan abu vulkanik memperburuk gejala TBC');
+    lines.push('• Gunakan masker (N95 jika ada) saat keluar rumah');
+    lines.push('• Hindari aktivitas luar saat asap tebal');
+    lines.push('• Tutup jendela/pintu, cuci muka & hidung setelah dari luar');
+    lines.push('• Minum air putih cukup — jaga saluran napas lembab');
   }
 
   lines.push('');
