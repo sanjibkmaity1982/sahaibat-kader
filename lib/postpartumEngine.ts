@@ -3,7 +3,9 @@
 // Covers: Setelah Melahirkan (Nifas) — 0 to 42 days post-delivery.
 // Deterministic, zero AI, zero network.
 
+
 import { generateIsiPiringku } from './counselling/isiPiringku';
+import { runIspaScreen } from './ispaScreen';
 export interface PostpartumInput {
   days_postpartum: number | null;    // days since delivery
   perdarahan: boolean;               // perdarahan lewat jalan lahir
@@ -13,7 +15,13 @@ export interface PostpartumInput {
   payudara_bengkak: boolean;         // payudara bengkak merah sakit (mastitis)
   depresi: boolean;                  // sedih/murung/menangis tanpa sebab >2 minggu
   asi_masalah: boolean;              // kesulitan menyusui / bayi tidak mau menyusu
-  tali_pusat?: boolean;              // kondisi tali pusat (opsional, relevan jika merawat bayi)
+  tali_pusat?: boolean;
+  // ISPA screening
+  ispa_batuk: 'kering' | 'berdahak' | 'tidak';
+  ispa_sesak: boolean;
+  ispa_mata: boolean;
+  ispa_paparan: boolean;
+  ispa_durasi: number | null;
 }
 
 export type PostpartumRisk = 'darurat' | 'tinggi' | 'sedang' | 'rendah';
@@ -25,7 +33,8 @@ export interface PostpartumResult {
   followUpDays: number;
   dangersFound: string[];
   reportText: string;
-  phase: 'early' | 'mid' | 'late'; // early=0-7d, mid=8-28d, late=29-42d
+  phase: 'early' | 'mid' | 'late';
+  ispaRisk: 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';
 }
 
 export function computePostpartumRisk(input: PostpartumInput): PostpartumRisk {
@@ -62,10 +71,16 @@ export function runPostpartumTriage(
   const phase: 'early' | 'mid' | 'late' = days <= 7 ? 'early'
     : days <= 28 ? 'mid' : 'late';
 
-  const riskLevel = risk === 'darurat' || risk === 'tinggi' ? 'HIGH'
-    : risk === 'sedang' ? 'MEDIUM' : 'LOW';
+// ISPA screening
+  const ispaResult = runIspaScreen(
+    { batuk: input.ispa_batuk, sesakNapas: input.ispa_sesak, mataPerih: input.ispa_mata, paparanAsap: input.ispa_paparan, durasiHari: input.ispa_durasi },
+    { isChild: false, isPregnant: false, isElderly: false }
+  );
 
-  const referNow = risk === 'darurat' || risk === 'tinggi';
+  const riskLevel = (risk === 'darurat' || risk === 'tinggi' || ispaResult.referNow) ? 'HIGH'
+    : (risk === 'sedang' || ispaResult.ispaRisk === 'MEDIUM') ? 'MEDIUM' : 'LOW';
+
+  const referNow = risk === 'darurat' || risk === 'tinggi' || ispaResult.referNow;
   const followUpDays = risk === 'darurat' ? 0
     : risk === 'tinggi' ? 0
     : risk === 'sedang' ? 2 : 7;
@@ -154,11 +169,17 @@ export function runPostpartumTriage(
 
   lines.push('');
   if (chwName) lines.push(`Kader: ${chwName}`);
+if (ispaResult.reportSection) {
+    lines.push('');
+    lines.push(ispaResult.reportSection);
+  }
+
   lines.push('Bukan diagnosis. SahAIbat Kader v1.');
 
   return {
     risk, riskLevel, referNow, followUpDays,
     dangersFound, phase,
     reportText: lines.join('\n'),
+    ispaRisk: ispaResult.ispaRisk,
   };
 }
