@@ -6,6 +6,7 @@ import { getIdentity } from "@/lib/auth";
 import { runPostpartumTriage, type PostpartumInput } from "@/lib/postpartumEngine";
 import { saveCase, getPendingCount, generateLocalId, type QueuedCase } from "@/lib/offlineStore";
 import { syncPendingCases } from "@/lib/syncClient";
+import BeneficiarySearch, { type BeneficiaryProfile } from "@/components/BeneficiarySearch";
 
 const C = {
   bg: "#0D1F1C", card: "rgba(255,255,255,0.05)",
@@ -16,7 +17,7 @@ const C = {
 };
 
 type Step =
-  | "name" | "days_pp" | "perdarahan" | "demam"
+  | "home" | "search" | "name" | "days_pp" | "perdarahan" | "demam"
   | "cairan_berbau" | "nyeri_ulu_hati" | "payudara"
   | "depresi" | "asi"
   | "ispa_batuk" | "ispa_sesak" | "ispa_mata" | "ispa_paparan"
@@ -33,7 +34,7 @@ const emptyInput: PostpartumInput = {
 export default function PostpartumTriagePage() {
   const router = useRouter();
   const [identity, setIdentity] = useState<{ name: string; profileId: string; ngoId: string } | null>(null);
-  const [step, setStep] = useState<Step>("name");
+  const [step, setStep] = useState<Step>("home");
   const [patientName, setPatientName] = useState("");
   const [input, setInput] = useState<PostpartumInput>(emptyInput);
   const [textInput, setTextInput] = useState("");
@@ -41,6 +42,8 @@ export default function PostpartumTriagePage() {
   const [result, setResult] = useState<QueuedCase | null>(null);
   const [pendingCount, setPendingCount] = useState(0);
   const [isOnline, setIsOnline] = useState(true);
+  const [isReturning, setIsReturning] = useState(false);
+  const [isWalkIn, setIsWalkIn] = useState(false);
 
   useEffect(() => {
     const id = getIdentity();
@@ -50,6 +53,36 @@ export default function PostpartumTriagePage() {
     window.addEventListener("online", () => setIsOnline(true));
     window.addEventListener("offline", () => setIsOnline(false));
   }, [router]);
+
+  // ── Start flows ────────────────────────────────────────────────────────────
+
+  function goToSearch() {
+    setPatientName(""); setInput(emptyInput);
+    setTextInput(""); setError(""); setResult(null);
+    setIsReturning(false); setIsWalkIn(false);
+    setStep("search");
+  }
+
+  function handleSelectBeneficiary(profile: BeneficiaryProfile) {
+    setPatientName(profile.patientName);
+    setIsReturning(true); setIsWalkIn(false);
+    setTextInput(""); setError("");
+    setStep("days_pp"); // always need fresh days postpartum
+  }
+
+  function handleNewFull() {
+    setPatientName(""); setInput(emptyInput);
+    setIsReturning(false); setIsWalkIn(false);
+    setTextInput(""); setError("");
+    setStep("name");
+  }
+
+  function handleWalkIn() {
+    setPatientName(""); setInput(emptyInput);
+    setIsReturning(false); setIsWalkIn(true);
+    setTextInput(""); setError("");
+    setStep("name");
+  }
 
   function yesNo(field: keyof PostpartumInput, value: boolean, nextStep: Step) {
     setInput(prev => ({ ...prev, [field]: value }));
@@ -73,6 +106,7 @@ export default function PostpartumTriagePage() {
       reportText: engineResult.reportText,
       referNow: engineResult.referNow,
       followUpDays: engineResult.followUpDays,
+      profileIncomplete: isWalkIn,
       createdAt: new Date().toISOString(),
       syncStatus: 'pending',
     };
@@ -80,7 +114,6 @@ export default function PostpartumTriagePage() {
     setResult(queued);
     setStep("result");
 
-    // Attempt immediate sync if online
     if (navigator.onLine) {
       syncPendingCases().then(({ synced: s }) => {
         if (s > 0) getPendingCount().then(setPendingCount);
@@ -89,23 +122,28 @@ export default function PostpartumTriagePage() {
   }
 
   function reset() {
-    setStep("name"); setPatientName(""); setInput(emptyInput);
+    setStep("home"); setPatientName(""); setInput(emptyInput);
     setTextInput(""); setError(""); setResult(null);
+    setIsReturning(false); setIsWalkIn(false);
   }
 
   if (!identity) return null;
 
+  const showBanner = !["home", "search", "result"].includes(step);
+
   return (
     <div style={{ minHeight: "100vh", background: C.bg, display: "flex", flexDirection: "column" }}>
 
+      {/* Header */}
       <div style={{
         display: "flex", alignItems: "center", gap: 12,
         padding: "16px 20px", borderBottom: `1px solid ${C.border}`,
         background: "rgba(0,0,0,0.2)",
       }}>
-        <button onClick={() => router.push("/triage")} style={{
-          background: "none", border: "none", color: C.dim, fontSize: 22, cursor: "pointer", padding: 0,
-        }}>←</button>
+        <button
+          onClick={() => step === "home" ? router.push("/triage") : setStep("home")}
+          style={{ background: "none", border: "none", color: C.dim, fontSize: 22, cursor: "pointer", padding: 0 }}
+        >←</button>
         <div>
           <div style={{ color: C.accent, fontWeight: 800, fontSize: 15 }}>🌸 Ibu Nifas</div>
           <div style={{ color: C.dim, fontSize: 12 }}>Triase pasca melahirkan — KMS Permenkes 2/2020</div>
@@ -120,6 +158,59 @@ export default function PostpartumTriagePage() {
 
       <div style={{ flex: 1, maxWidth: 480, width: "100%", margin: "0 auto" }}>
 
+        {/* ── HOME ── */}
+        {step === "home" && (
+          <div style={{ padding: "40px 20px" }}>
+            <div style={{ textAlign: "center", marginBottom: 32 }}>
+              <div style={{ fontSize: 40, marginBottom: 8 }}>🌸</div>
+              <h1 style={{ color: C.accent, fontSize: 22, fontWeight: 800, margin: 0 }}>Ibu Nifas</h1>
+              <p style={{ color: C.dim, fontSize: 14, marginTop: 8 }}>Triase pasca melahirkan — 0 sampai 42 hari</p>
+            </div>
+            <button onClick={goToSearch} style={{
+              width: "100%", padding: 18, borderRadius: 14,
+              background: C.accent, color: C.white,
+              fontSize: 18, fontWeight: 800, border: "none", cursor: "pointer",
+            }}>
+              ➕ Mulai Triase Ibu Nifas
+            </button>
+          </div>
+        )}
+
+        {/* ── SEARCH ── */}
+        {step === "search" && (
+          <BeneficiarySearch
+            moduleType="postpartum"
+            moduleEmoji="🌸"
+            moduleTitle="Ibu Nifas"
+            onSelect={handleSelectBeneficiary}
+            onNew={handleNewFull}
+            onWalkIn={handleWalkIn}
+          />
+        )}
+
+        {/* Returning banner */}
+        {isReturning && showBanner && (
+          <div style={{
+            margin: "12px 20px 0", padding: "10px 14px", borderRadius: 10,
+            background: "rgba(156,39,176,0.08)", border: `1px solid rgba(156,39,176,0.3)`,
+            color: C.accent, fontSize: 13,
+          }}>
+            ✓ Data {patientName} dimuat — masukkan data kunjungan ini
+          </div>
+        )}
+
+        {/* Walk-in banner */}
+        {isWalkIn && showBanner && (
+          <div style={{
+            margin: "12px 20px 0", padding: "10px 14px", borderRadius: 10,
+            background: "rgba(255,209,102,0.08)", border: `1px solid rgba(255,209,102,0.3)`,
+            color: C.yellow, fontSize: 13,
+          }}>
+            ⚡ Triage cepat — lengkapi data lengkap setelah sesi selesai
+          </div>
+        )}
+
+        {/* ── NAME ── */}
         {step === "name" && (
           <QCard title="Nama ibu?" accent={C.accent}>
             <TInput placeholder="Contoh: Sari Dewi" value={textInput} onChange={setTextInput} accent={C.accent}
@@ -131,6 +222,7 @@ export default function PostpartumTriagePage() {
           </QCard>
         )}
 
+        {/* ── DAYS PP ── */}
         {step === "days_pp" && (
           <QCard title="Hari ke berapa setelah melahirkan?" hint="Ketik angka hari. Contoh: 3 (untuk hari ke-3)" accent={C.accent}>
             <TInput placeholder="Contoh: 7" value={textInput} onChange={setTextInput} type="number" accent={C.accent}
@@ -143,43 +235,50 @@ export default function PostpartumTriagePage() {
           </QCard>
         )}
 
+        {/* ── PERDARAHAN ── */}
         {step === "perdarahan" && (
           <QCard title="Ada perdarahan lewat jalan lahir?" hint="Perdarahan lebih banyak dari biasa atau berbau" accent={C.accent}>
             <YNButtons onYes={() => { const u = { ...input, perdarahan: true }; setInput(u); finish(u); }} onNo={() => yesNo("perdarahan", false, "demam")} accent={C.accent} />
           </QCard>
         )}
 
+        {/* ── DEMAM ── */}
         {step === "demam" && (
           <QCard title="Demam lebih dari 2 hari?" accent={C.accent}>
             <YNButtons onYes={() => yesNo("demam", true, "cairan_berbau")} onNo={() => yesNo("demam", false, "cairan_berbau")} accent={C.accent} />
           </QCard>
         )}
 
+        {/* ── CAIRAN BERBAU ── */}
         {step === "cairan_berbau" && (
           <QCard title="Keluar cairan berbau dari jalan lahir?" accent={C.accent}>
             <YNButtons onYes={() => yesNo("cairan_berbau", true, "nyeri_ulu_hati")} onNo={() => yesNo("cairan_berbau", false, "nyeri_ulu_hati")} accent={C.accent} />
           </QCard>
         )}
 
+        {/* ── NYERI ULU HATI ── */}
         {step === "nyeri_ulu_hati" && (
           <QCard title="Nyeri ulu hati, sakit kepala berat, pandangan kabur, bengkak, atau kejang?" hint="Tanda preeklampsia pasca melahirkan" accent={C.accent}>
             <YNButtons onYes={() => { const u = { ...input, nyeri_ulu_hati: true }; setInput(u); finish(u); }} onNo={() => yesNo("nyeri_ulu_hati", false, "payudara")} accent={C.accent} />
           </QCard>
         )}
 
+        {/* ── PAYUDARA ── */}
         {step === "payudara" && (
           <QCard title="Payudara bengkak, merah, dan terasa sakit?" hint="Tanda mastitis atau sumbatan ASI" accent={C.accent}>
             <YNButtons onYes={() => yesNo("payudara_bengkak", true, "depresi")} onNo={() => yesNo("payudara_bengkak", false, "depresi")} accent={C.accent} />
           </QCard>
         )}
 
+        {/* ── DEPRESI ── */}
         {step === "depresi" && (
           <QCard title="Ibu tampak sangat sedih, murung, atau menangis tanpa sebab?" hint="Berlangsung lebih dari beberapa hari" accent={C.accent}>
             <YNButtons onYes={() => yesNo("depresi", true, "asi")} onNo={() => yesNo("depresi", false, "asi")} accent={C.accent} />
           </QCard>
         )}
 
-       {step === "asi" && (
+        {/* ── ASI ── */}
+        {step === "asi" && (
           <QCard title="Ada kesulitan menyusui?" hint="Bayi tidak mau menyusu, ASI tidak keluar, atau ibu kesakitan saat menyusui" accent={C.accent}>
             <YNButtons
               onYes={() => { setInput(prev => ({ ...prev, asi_masalah: true })); setStep("ispa_batuk"); }}
@@ -189,6 +288,7 @@ export default function PostpartumTriagePage() {
           </QCard>
         )}
 
+        {/* ── ISPA ── */}
         {step === "ispa_batuk" && (
           <QCard title="Apakah ibu batuk?" hint="Batuk kering atau batuk berdahak?" accent={C.accent}>
             <YNButtons onYes={() => { setInput(prev => ({ ...prev, ispa_batuk: 'kering' as const })); setStep("ispa_sesak"); }} onNo={() => { setInput(prev => ({ ...prev, ispa_batuk: 'tidak' as const })); setStep("ispa_sesak"); }} accent={C.accent} />
@@ -217,6 +317,7 @@ export default function PostpartumTriagePage() {
           </QCard>
         )}
 
+        {/* ── RESULT ── */}
         {step === "result" && result && (
           <ResultScreen result={result} accent={C.accent} onNext={reset} onHome={() => router.push("/triage")} />
         )}
@@ -267,6 +368,13 @@ function ResultScreen({ result, accent, onNext, onHome }: { result: QueuedCase; 
         <div style={{ color: rc, fontSize: 17, fontWeight: 800 }}>{rl}</div>
         {result.referNow && <div style={{ color: "#FF6B6B", fontSize: 13, marginTop: 6 }}>Segera ke Puskesmas/RS</div>}
       </div>
+
+      {result.profileIncomplete && (
+        <div style={{ background: "rgba(255,209,102,0.1)", border: `1px solid #FFD166`, borderRadius: 10, padding: 12, marginBottom: 16, fontSize: 13, color: "#FFD166" }}>
+          ⚠️ <strong>Profil belum lengkap</strong> — mohon lengkapi data {result.patientName} setelah sesi selesai
+        </div>
+      )}
+
       <div style={{ background: "rgba(255,255,255,0.05)", border: `1px solid ${accent}30`, borderRadius: 12, padding: 16, marginBottom: 20 }}>
         <pre style={{ color: "#FFFFFF", fontSize: 13, lineHeight: 1.7, whiteSpace: "pre-wrap", margin: 0, fontFamily: "inherit" }}>{result.reportText}</pre>
       </div>
