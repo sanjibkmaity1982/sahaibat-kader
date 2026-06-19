@@ -35,10 +35,11 @@ export default function LoginPage() {
       const data = await res.json();
 
       if (data.found) {
-        saveIdentity({
+      saveIdentity({
           profileId: data.profileId,
           name: data.name,
           ngoId: data.ngoId,
+          facilityId: data.facilityId ?? null,
           phone: normalised,
           savedAt: new Date().toISOString(),
         });
