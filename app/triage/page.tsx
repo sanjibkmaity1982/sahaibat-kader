@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { getIdentity, clearIdentity } from "@/lib/auth";
 import { getIdentity, clearIdentity, type KaderIdentity } from "@/lib/auth";
 import {
   getPendingCount,
