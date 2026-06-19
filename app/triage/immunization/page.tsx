@@ -282,6 +282,7 @@ export default function ImmunizationPage() {
           <BeneficiarySearch
             moduleType="immunization"
             moduleEmoji="💉"
+            facilityId={identity?.facilityId}
             moduleTitle="Imunisasi & Suplemen"
             onSelect={handleSelectBeneficiary}
             onNew={handleNewFull}
