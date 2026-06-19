@@ -1,7 +1,7 @@
 "use client";
 
 // app/triage/child/page.tsx
-// Production v4 — added lingkar kepala (head circumference) for Kemenkes 2c
+// Production v5 — added beneficiary search + walk-in quick entry
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
@@ -11,10 +11,11 @@ import {
   saveCase, getPendingCount, generateLocalId, type QueuedCase,
 } from "@/lib/offlineStore";
 import { syncPendingCases } from "@/lib/syncClient";
+import BeneficiarySearch, { type BeneficiaryProfile } from "@/components/BeneficiarySearch";
 
 type Step =
-  | "home" | "child_name" | "nik" | "age_method" | "age_dob" | "age_months" | "age_years"
- | "gender" | "weight" | "height" | "muac" | "headcirc" | "feeding" | "milestone"
+  | "home" | "search" | "child_name" | "nik" | "age_method" | "age_dob" | "age_months" | "age_years"
+  | "gender" | "weight" | "height" | "muac" | "headcirc" | "feeding" | "milestone"
   | "ispa_batuk" | "ispa_sesak" | "ispa_mata" | "ispa_paparan"
   | "result";
 
@@ -29,21 +30,23 @@ interface TriageState {
   heightCm: number | null;
   muacCm: number | null;
   headCircCm: number | null;
- feedingFreq: "1" | "2" | "3" | null;
+  feedingFreq: "1" | "2" | "3" | null;
   milestoneScore: "1" | "2" | "3" | null;
   ispa_batuk: "kering" | "berdahak" | "tidak" | null;
   ispa_sesak: boolean;
   ispa_mata: boolean;
   ispa_paparan: boolean;
+  isWalkIn: boolean;
+  isReturning: boolean;
 }
 
 const emptyState: TriageState = {
   childName: "", nik: "", dob: null, ageMonths: null,
   ageSource: "manual_months", gender: null,
   weightKg: null, heightCm: null, muacCm: null,
-  headCircCm: null,
- feedingFreq: null, milestoneScore: null,
+  headCircCm: null, feedingFreq: null, milestoneScore: null,
   ispa_batuk: null, ispa_sesak: false, ispa_mata: false, ispa_paparan: false,
+  isWalkIn: false, isReturning: false,
 };
 
 const C = {
@@ -107,9 +110,50 @@ export default function ChildTriagePage() {
     };
   }, [router]);
 
-  function startTriage() {
-    setTriage(emptyState); setInput(""); setInputB("");
-    setError(""); setSynced(false); setStep("child_name");
+  // ── Start flows ──────────────────────────────────────────────────────────
+
+  // Go to search screen
+  function goToSearch() {
+    setTriage(emptyState);
+    setInput(""); setInputB("");
+    setError(""); setSynced(false);
+    setStep("search");
+  }
+
+  // Returning beneficiary selected from search — pre-fill and skip to weight
+  function handleSelectBeneficiary(profile: BeneficiaryProfile) {
+    setTriage({
+      ...emptyState,
+      childName: profile.patientName,
+      nik: profile.nik ?? "",
+      dob: profile.dob ?? null,
+      ageMonths: profile.ageMonths ?? null,
+      ageSource: profile.dob ? "dob_exact" : "manual_months",
+      gender: (profile.gender === "male" || profile.gender === "female") ? profile.gender : null,
+      isReturning: true,
+      isWalkIn: false,
+    });
+    setInput(""); setInputB(""); setError("");
+    // If we have gender already, skip straight to weight
+    if (profile.gender === "male" || profile.gender === "female") {
+      setStep("weight");
+    } else {
+      setStep("gender");
+    }
+  }
+
+  // New full registration
+  function handleNewFull() {
+    setTriage({ ...emptyState, isWalkIn: false, isReturning: false });
+    setInput(""); setInputB(""); setError("");
+    setStep("child_name");
+  }
+
+  // Walk-in quick entry — name only, skip NIK/DOB
+  function handleWalkIn() {
+    setTriage({ ...emptyState, isWalkIn: true, isReturning: false });
+    setInput(""); setInputB(""); setError("");
+    setStep("child_name");
   }
 
   function next(updates: Partial<TriageState>, nextStep: Step) {
@@ -117,9 +161,16 @@ export default function ChildTriagePage() {
     setInput(""); setInputB(""); setError(""); setStep(nextStep);
   }
 
+  // ── Step handlers ────────────────────────────────────────────────────────
+
   function submitName() {
     if (!input.trim()) { setError("Masukkan nama anak."); return; }
-    next({ childName: input.trim() }, "nik");
+    if (triage.isWalkIn) {
+      // Walk-in: skip NIK and DOB, go straight to age
+      next({ childName: input.trim() }, "age_method");
+    } else {
+      next({ childName: input.trim() }, "nik");
+    }
   }
 
   function submitNik() {
@@ -207,7 +258,7 @@ export default function ChildTriagePage() {
       milestoneScore,
       childName: t.childName,
       chwName: identity?.name,
-      ispa_batuk: t.ispa_batuk ?? 'tidak',
+      ispa_batuk: t.ispa_batuk ?? "tidak",
       ispa_sesak: t.ispa_sesak,
       ispa_mata: t.ispa_mata,
       ispa_paparan: t.ispa_paparan,
@@ -242,6 +293,7 @@ export default function ChildTriagePage() {
       reportText: engineResult.reportText,
       referNow: engineResult.referNow,
       followUpDays: engineResult.followUpDays,
+      profileIncomplete: t.isWalkIn,
       createdAt: new Date().toISOString(),
       syncStatus: "pending",
     };
@@ -280,9 +332,10 @@ export default function ChildTriagePage() {
         padding: "16px 20px", borderBottom: `1px solid ${C.border}`,
         background: "rgba(0,0,0,0.2)",
       }}>
-        <button onClick={() => router.push("/triage")} style={{
-          background: "none", border: "none", color: C.dim, fontSize: 22, cursor: "pointer", padding: 0,
-        }}>←</button>
+        <button
+          onClick={() => step === "home" ? router.push("/triage") : setStep("home")}
+          style={{ background: "none", border: "none", color: C.dim, fontSize: 22, cursor: "pointer", padding: 0 }}
+        >←</button>
         <div>
           <div style={{ color: C.teal, fontWeight: 800, fontSize: 15 }}>👶 Posyandu Anak</div>
           <div style={{ color: C.dim, fontSize: 12 }}>{identity.name}</div>
@@ -302,6 +355,7 @@ export default function ChildTriagePage() {
 
       <div style={{ flex: 1, maxWidth: 480, width: "100%", margin: "0 auto" }}>
 
+        {/* ── HOME ── */}
         {step === "home" && (
           <div style={{ padding: "40px 20px" }}>
             <div style={{ textAlign: "center", marginBottom: 32 }}>
@@ -309,9 +363,55 @@ export default function ChildTriagePage() {
               <h1 style={{ color: C.teal, fontSize: 22, fontWeight: 800, margin: 0 }}>Posyandu Anak</h1>
               <p style={{ color: C.dim, fontSize: 14, marginTop: 8 }}>Tumbuh kembang balita 0–60 bulan</p>
             </div>
-            <button onClick={startTriage} style={{ width: "100%", padding: 18, borderRadius: 14, background: C.teal, color: C.white, fontSize: 18, fontWeight: 800, border: "none", cursor: "pointer" }}>
+            <button onClick={goToSearch} style={{
+              width: "100%", padding: 18, borderRadius: 14,
+              background: C.teal, color: C.white,
+              fontSize: 18, fontWeight: 800, border: "none", cursor: "pointer", marginBottom: 12,
+            }}>
               ➕ Mulai Triage Posyandu
             </button>
+          </div>
+        )}
+
+        {/* ── SEARCH ── */}
+        {step === "search" && (
+          <BeneficiarySearch
+            moduleType="child"
+            moduleEmoji="👶"
+            moduleTitle="Posyandu Anak"
+            onSelect={handleSelectBeneficiary}
+            onNew={handleNewFull}
+            onWalkIn={handleWalkIn}
+          />
+        )}
+
+        {/* Returning beneficiary banner */}
+        {triage.isReturning && step !== "search" && step !== "home" && step !== "result" && (
+          <div style={{
+            margin: "12px 20px 0",
+            padding: "10px 14px",
+            borderRadius: 10,
+            background: "rgba(2,195,154,0.08)",
+            border: `1px solid rgba(2,195,154,0.3)`,
+            color: C.teal,
+            fontSize: 13,
+          }}>
+            ✓ Data {triage.childName} dimuat — masukkan pengukuran bulan ini
+          </div>
+        )}
+
+        {/* Walk-in banner */}
+        {triage.isWalkIn && step !== "search" && step !== "home" && step !== "result" && (
+          <div style={{
+            margin: "12px 20px 0",
+            padding: "10px 14px",
+            borderRadius: 10,
+            background: "rgba(255,209,102,0.08)",
+            border: `1px solid rgba(255,209,102,0.3)`,
+            color: C.yellow,
+            fontSize: 13,
+          }}>
+            ⚡ Triage cepat — lengkapi NIK & data setelah sesi selesai
           </div>
         )}
 
@@ -358,50 +458,23 @@ export default function ChildTriagePage() {
             <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
               <div style={{ flex: 1 }}>
                 <div style={{ color: C.dim, fontSize: 11, marginBottom: 4, textAlign: "center" }}>Tanggal</div>
-                <select
-                  value={input.split("-")[2] || ""}
-                  onChange={e => {
-                    const parts = input.split("-");
-                    setInput(`${parts[0] || ""}${parts[0] ? "-" : ""}${parts[1] || ""}${parts[1] ? "-" : ""}${e.target.value}`);
-                  }}
-                  style={{ width: "100%", padding: "12px 8px", borderRadius: 10, background: "rgba(255,255,255,0.08)", border: `1.5px solid ${C.border}`, color: C.white, fontSize: 16, outline: "none" }}
-                >
+                <select value={input.split("-")[2] || ""} onChange={e => { const parts = input.split("-"); setInput(`${parts[0] || ""}${parts[0] ? "-" : ""}${parts[1] || ""}${parts[1] ? "-" : ""}${e.target.value}`); }} style={{ width: "100%", padding: "12px 8px", borderRadius: 10, background: "rgba(255,255,255,0.08)", border: `1.5px solid ${C.border}`, color: C.white, fontSize: 16, outline: "none" }}>
                   <option value="">--</option>
-                  {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
-                    <option key={d} value={String(d).padStart(2, "0")} style={{ background: "#0D1F1C" }}>{d}</option>
-                  ))}
+                  {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (<option key={d} value={String(d).padStart(2, "0")} style={{ background: "#0D1F1C" }}>{d}</option>))}
                 </select>
               </div>
               <div style={{ flex: 2 }}>
                 <div style={{ color: C.dim, fontSize: 11, marginBottom: 4, textAlign: "center" }}>Bulan</div>
-                <select
-                  value={input.split("-")[1] || ""}
-                  onChange={e => {
-                    const parts = input.split("-");
-                    setInput(`${parts[0] || ""}${parts[0] ? "-" : ""}${e.target.value}-${parts[2] || ""}`);
-                  }}
-                  style={{ width: "100%", padding: "12px 8px", borderRadius: 10, background: "rgba(255,255,255,0.08)", border: `1.5px solid ${C.border}`, color: C.white, fontSize: 16, outline: "none" }}
-                >
+                <select value={input.split("-")[1] || ""} onChange={e => { const parts = input.split("-"); setInput(`${parts[0] || ""}${parts[0] ? "-" : ""}${e.target.value}-${parts[2] || ""}`); }} style={{ width: "100%", padding: "12px 8px", borderRadius: 10, background: "rgba(255,255,255,0.08)", border: `1.5px solid ${C.border}`, color: C.white, fontSize: 16, outline: "none" }}>
                   <option value="">--</option>
-                  {["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"].map((m, i) => (
-                    <option key={i} value={String(i + 1).padStart(2, "0")} style={{ background: "#0D1F1C" }}>{m}</option>
-                  ))}
+                  {["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"].map((m, i) => (<option key={i} value={String(i + 1).padStart(2, "0")} style={{ background: "#0D1F1C" }}>{m}</option>))}
                 </select>
               </div>
               <div style={{ flex: 2 }}>
                 <div style={{ color: C.dim, fontSize: 11, marginBottom: 4, textAlign: "center" }}>Tahun</div>
-                <select
-                  value={input.split("-")[0] || ""}
-                  onChange={e => {
-                    const parts = input.split("-");
-                    setInput(`${e.target.value}-${parts[1] || ""}-${parts[2] || ""}`);
-                  }}
-                  style={{ width: "100%", padding: "12px 8px", borderRadius: 10, background: "rgba(255,255,255,0.08)", border: `1.5px solid ${C.border}`, color: C.white, fontSize: 16, outline: "none" }}
-                >
+                <select value={input.split("-")[0] || ""} onChange={e => { const parts = input.split("-"); setInput(`${e.target.value}-${parts[1] || ""}-${parts[2] || ""}`); }} style={{ width: "100%", padding: "12px 8px", borderRadius: 10, background: "rgba(255,255,255,0.08)", border: `1.5px solid ${C.border}`, color: C.white, fontSize: 16, outline: "none" }}>
                   <option value="">----</option>
-                  {Array.from({ length: 6 }, (_, i) => new Date().getFullYear() - i).map(y => (
-                    <option key={y} value={String(y)} style={{ background: "#0D1F1C" }}>{y}</option>
-                  ))}
+                  {Array.from({ length: 6 }, (_, i) => new Date().getFullYear() - i).map(y => (<option key={y} value={String(y)} style={{ background: "#0D1F1C" }}>{y}</option>))}
                 </select>
               </div>
             </div>
@@ -410,15 +483,8 @@ export default function ChildTriagePage() {
                 ✓ Usia: {dobToMonths(input)} bulan
               </div>
             )}
-            <button
-              onClick={submitDob}
-              style={{ width: "100%", padding: 14, borderRadius: 10, background: input.match(/^\d{4}-\d{2}-\d{2}$/) ? C.teal : "rgba(2,195,154,0.3)", color: C.white, fontSize: 16, fontWeight: 700, border: "none", cursor: "pointer" }}
-            >
-              Lanjut →
-            </button>
-            <button onClick={() => setStep("age_method")} style={{ width: "100%", padding: 12, borderRadius: 10, background: "none", color: C.dim, fontSize: 14, border: "none", cursor: "pointer", marginTop: 8 }}>
-              ← Pilih metode lain
-            </button>
+            <button onClick={submitDob} style={{ width: "100%", padding: 14, borderRadius: 10, background: input.match(/^\d{4}-\d{2}-\d{2}$/) ? C.teal : "rgba(2,195,154,0.3)", color: C.white, fontSize: 16, fontWeight: 700, border: "none", cursor: "pointer" }}>Lanjut →</button>
+            <button onClick={() => setStep("age_method")} style={{ width: "100%", padding: 12, borderRadius: 10, background: "none", color: C.dim, fontSize: 14, border: "none", cursor: "pointer", marginTop: 8 }}>← Pilih metode lain</button>
             {error && <Err msg={error} />}
           </QCard>
         )}
@@ -426,9 +492,7 @@ export default function ChildTriagePage() {
         {step === "age_months" && (
           <QCard question="Usia anak (bulan)?" hint="Masukkan total usia dalam bulan. Contoh: 18">
             <TInput placeholder="Contoh: 18" value={input} onChange={setInput} onSubmit={submitAgeMonths} type="number" />
-            <button onClick={() => setStep("age_method")} style={{ width: "100%", padding: 12, borderRadius: 10, background: "none", color: C.dim, fontSize: 14, border: "none", cursor: "pointer", marginTop: 4 }}>
-              ← Pilih metode lain
-            </button>
+            <button onClick={() => setStep("age_method")} style={{ width: "100%", padding: 12, borderRadius: 10, background: "none", color: C.dim, fontSize: 14, border: "none", cursor: "pointer", marginTop: 4 }}>← Pilih metode lain</button>
             {error && <Err msg={error} />}
           </QCard>
         )}
@@ -438,13 +502,11 @@ export default function ChildTriagePage() {
             <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
               <div style={{ flex: 1 }}>
                 <div style={{ color: C.dim, fontSize: 12, marginBottom: 6 }}>Tahun</div>
-                <input type="number" placeholder="0–5" value={input} onChange={e => setInput(e.target.value)} min={0} max={5}
-                  style={{ width: "100%", padding: "14px 12px", borderRadius: 10, background: "rgba(255,255,255,0.08)", border: `1.5px solid ${C.border}`, color: C.white, fontSize: 18, outline: "none", boxSizing: "border-box" }} />
+                <input type="number" placeholder="0–5" value={input} onChange={e => setInput(e.target.value)} min={0} max={5} style={{ width: "100%", padding: "14px 12px", borderRadius: 10, background: "rgba(255,255,255,0.08)", border: `1.5px solid ${C.border}`, color: C.white, fontSize: 18, outline: "none", boxSizing: "border-box" }} />
               </div>
               <div style={{ flex: 1 }}>
                 <div style={{ color: C.dim, fontSize: 12, marginBottom: 6 }}>Bulan</div>
-                <input type="number" placeholder="0–11" value={inputB} onChange={e => setInputB(e.target.value)} min={0} max={11}
-                  style={{ width: "100%", padding: "14px 12px", borderRadius: 10, background: "rgba(255,255,255,0.08)", border: `1.5px solid ${C.border}`, color: C.white, fontSize: 18, outline: "none", boxSizing: "border-box" }} />
+                <input type="number" placeholder="0–11" value={inputB} onChange={e => setInputB(e.target.value)} min={0} max={11} style={{ width: "100%", padding: "14px 12px", borderRadius: 10, background: "rgba(255,255,255,0.08)", border: `1.5px solid ${C.border}`, color: C.white, fontSize: 18, outline: "none", boxSizing: "border-box" }} />
               </div>
             </div>
             {(input || inputB) && (
@@ -452,12 +514,8 @@ export default function ChildTriagePage() {
                 ✓ Total: {(parseInt(input || "0") * 12) + parseInt(inputB || "0")} bulan
               </div>
             )}
-            <button onClick={submitAgeYears} style={{ width: "100%", padding: 14, borderRadius: 10, background: C.teal, color: C.white, fontSize: 16, fontWeight: 700, border: "none", cursor: "pointer" }}>
-              Lanjut →
-            </button>
-            <button onClick={() => setStep("age_method")} style={{ width: "100%", padding: 12, borderRadius: 10, background: "none", color: C.dim, fontSize: 14, border: "none", cursor: "pointer", marginTop: 8 }}>
-              ← Pilih metode lain
-            </button>
+            <button onClick={submitAgeYears} style={{ width: "100%", padding: 14, borderRadius: 10, background: C.teal, color: C.white, fontSize: 16, fontWeight: 700, border: "none", cursor: "pointer" }}>Lanjut →</button>
+            <button onClick={() => setStep("age_method")} style={{ width: "100%", padding: 12, borderRadius: 10, background: "none", color: C.dim, fontSize: 14, border: "none", cursor: "pointer", marginTop: 8 }}>← Pilih metode lain</button>
             {error && <Err msg={error} />}
           </QCard>
         )}
@@ -470,7 +528,7 @@ export default function ChildTriagePage() {
         )}
 
         {step === "weight" && (
-          <QCard question="Berat badan anak (kg)?" hint="Contoh: 8.5 atau 8,5">
+          <QCard question="Berat badan anak (kg)?" hint={triage.isReturning ? `${triage.childName} · ${ageDisplay}` : "Contoh: 8.5 atau 8,5"}>
             <TInput placeholder="Contoh: 8.5" value={input} onChange={setInput} onSubmit={submitWeight} type="decimal" />
             {error && <Err msg={error} />}
           </QCard>
@@ -548,6 +606,17 @@ export default function ChildTriagePage() {
               <div style={{ color: riskColor(result.riskLevel), fontSize: 18, fontWeight: 800 }}>{riskLabel(result.riskLevel)}</div>
               {result.referNow && <div style={{ color: C.red, fontSize: 14, marginTop: 6 }}>Bawa ke Puskesmas hari ini</div>}
             </div>
+
+            {/* Walk-in incomplete reminder */}
+            {result.profileIncomplete && (
+              <div style={{
+                background: "rgba(255,209,102,0.1)", border: `1px solid ${C.yellow}`,
+                borderRadius: 10, padding: 12, marginBottom: 16, fontSize: 13, color: C.yellow,
+              }}>
+                ⚠️ <strong>Profil belum lengkap</strong> — mohon lengkapi NIK dan tanggal lahir {result.patientName} setelah sesi selesai
+              </div>
+            )}
+
             <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, marginBottom: 20 }}>
               <pre style={{ color: C.white, fontSize: 13, lineHeight: 1.7, whiteSpace: "pre-wrap", margin: 0, fontFamily: "inherit" }}>{result.reportText}</pre>
             </div>
@@ -560,7 +629,7 @@ export default function ChildTriagePage() {
                 ⏳ Tersimpan lokal — akan sinkron ke server saat ada sinyal
               </div>
             )}
-            <button onClick={startTriage} style={{ width: "100%", padding: 16, borderRadius: 12, background: C.teal, color: C.white, fontSize: 16, fontWeight: 700, border: "none", cursor: "pointer", marginBottom: 12 }}>
+            <button onClick={goToSearch} style={{ width: "100%", padding: 16, borderRadius: 12, background: C.teal, color: C.white, fontSize: 16, fontWeight: 700, border: "none", cursor: "pointer", marginBottom: 12 }}>
               ➕ Triage Anak Berikutnya
             </button>
             <button onClick={() => router.push("/triage")} style={{ width: "100%", padding: 14, borderRadius: 12, background: C.card, color: C.dim, fontSize: 15, fontWeight: 600, border: `1px solid ${C.border}`, cursor: "pointer" }}>
