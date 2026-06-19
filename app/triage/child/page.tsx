@@ -379,6 +379,7 @@ export default function ChildTriagePage() {
             moduleType="child"
             moduleEmoji="👶"
             moduleTitle="Posyandu Anak"
+            facilityId={identity?.facilityId}
             onSelect={handleSelectBeneficiary}
             onNew={handleNewFull}
             onWalkIn={handleWalkIn}
