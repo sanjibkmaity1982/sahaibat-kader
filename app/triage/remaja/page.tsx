@@ -271,6 +271,7 @@ export default function RemajaTriagePage() {
             moduleType="remaja"
             moduleEmoji="🎒"
             moduleTitle="Usia Sekolah & Remaja"
+            facilityId={identity?.facilityId}
             onSelect={handleSelectBeneficiary}
             onNew={handleNewFull}
             onWalkIn={handleWalkIn}
