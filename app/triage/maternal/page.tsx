@@ -189,6 +189,7 @@ export default function MaternalTriagePage() {
             moduleType="maternal"
             moduleEmoji="🤰"
             moduleTitle="Ibu Hamil"
+            facilityId={identity?.facilityId}
             onSelect={handleSelectBeneficiary}
             onNew={handleNewFull}
             onWalkIn={handleWalkIn}
