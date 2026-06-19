@@ -41,6 +41,7 @@ export interface QueuedCase {
   createdAt: string;
   syncStatus: 'pending' | 'synced' | 'failed';
   syncError?: string;
+  profileIncomplete?: boolean;
 }
 
 // ── Legacy support — keep childName as alias for patientName ─────────────────
@@ -197,4 +198,33 @@ export function moduleLabel(moduleType: ModuleType): string {
     case 'postpartum': return 'Ibu Nifas';
     case 'neonatal':   return 'Bayi Baru Lahir';
   }
+}
+
+// ── Search beneficiaries by name (for monthly auto-populate) ─────────────────
+export async function searchBeneficiaries(
+  query: string,
+  moduleType?: ModuleType
+): Promise<QueuedCase[]> {
+  if (!query.trim()) return [];
+  const all = await getAllCases();
+  const q = query.toLowerCase().trim();
+
+  const matches = all.filter(c => {
+    const nameMatch = c.patientName?.toLowerCase().includes(q);
+    const moduleMatch = moduleType ? c.moduleType === moduleType : true;
+    return nameMatch && moduleMatch;
+  });
+
+  // Deduplicate — keep most recent case per unique NIK or name
+  const seen = new Map<string, QueuedCase>();
+  for (const c of matches) {
+    const key = c.nik && c.nik.length === 16
+      ? c.nik
+      : c.patientName.toLowerCase().trim();
+    if (!seen.has(key)) {
+      seen.set(key, c); // getAllCases() already sorted newest-first
+    }
+  }
+
+  return Array.from(seen.values()).slice(0, 5);
 }
