@@ -12,6 +12,7 @@ import {
   getPatientName,
   formatAge,
 } from "@/lib/offlineStore";
+import { syncBeneficiaryDirectory } from "@/lib/syncClient";
 
 const C = {
   bg: "#0D1F1C",
@@ -39,7 +40,7 @@ type View = "home" | "history";
 
 export default function TriagePage() {
   const router = useRouter();
-  const [identity, setIdentity] = useState<{ name: string; profileId: string; ngoId: string } | null>(null);
+  const [identity, setIdentity] = useState<{ name: string; profileId: string; ngoId: string; facilityId?: number } | null>(null);
   const [pendingCount, setPendingCount] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
@@ -69,7 +70,7 @@ export default function TriagePage() {
   }, [isSyncing, refreshPending]);
 
   useEffect(() => {
-    const id = getIdentity();
+const id = getIdentity();
     if (!id) { router.replace("/"); return; }
     setIdentity(id);
 
@@ -82,6 +83,20 @@ export default function TriagePage() {
     // If already online on mount, run sync after short delay
     if (online) {
       const t = setTimeout(() => runSync(), 2000);
+
+      // Sync beneficiary directory in background — non-blocking
+      // Runs after 3s to avoid competing with case sync
+      if ((id as any).facilityId && id.ngoId) {
+        setTimeout(() => {
+          syncBeneficiaryDirectory(
+            (id as any).facilityId,
+            id.ngoId
+          ).catch(() => {
+            // Silent fail — never block login
+          });
+        }, 3000);
+      }
+
       return () => clearTimeout(t);
     }
   }, [router, refreshPending]); // runSync intentionally excluded from deps here
