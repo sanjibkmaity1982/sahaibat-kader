@@ -2,7 +2,7 @@
 
 // app/triage/immunization/page.tsx
 // Imunisasi & Suplemen — Kemenkes 2023 schedule + Vitamin A + Obat Cacing
-// Offline-capable: schedule is deterministic from DOB, records stored in IndexedDB
+// v2 — added beneficiary search + walk-in
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
@@ -15,6 +15,7 @@ import {
 } from "@/lib/immunization/schedule";
 import { saveCase, getPendingCount, generateLocalId, type QueuedCase } from "@/lib/offlineStore";
 import { syncPendingCases } from "@/lib/syncClient";
+import BeneficiarySearch, { type BeneficiaryProfile } from "@/components/BeneficiarySearch";
 
 const C = {
   bg: "#0D1F1C", card: "rgba(255,255,255,0.05)",
@@ -24,11 +25,11 @@ const C = {
   yellow: "#FFD166", green: "#02C39A", blue: "#2196F3",
 };
 
-type Step = "home" | "child_name" | "child_dob" | "grid" | "confirm" | "done";
+type Step = "home" | "search" | "child_name" | "child_dob" | "grid" | "confirm";
 
 interface ChildInfo {
   name: string;
-  dob: string; // ISO date
+  dob: string;
   ageMonths: number;
 }
 
@@ -83,12 +84,14 @@ export default function ImmunizationPage() {
   const [step, setStep] = useState<Step>("home");
   const [child, setChild] = useState<ChildInfo | null>(null);
   const [input, setInput] = useState("");
+  const [childNameInput, setChildNameInput] = useState("");
   const [error, setError] = useState("");
   const [statuses, setStatuses] = useState<VaccineStatus[]>([]);
   const [loggedRecords, setLoggedRecords] = useState<ImmunizationRecord[]>([]);
   const [selectedVaccine, setSelectedVaccine] = useState<VaccineStatus | null>(null);
   const [loggedToday, setLoggedToday] = useState<string[]>([]);
   const [isOnline, setIsOnline] = useState(true);
+  const [isReturning, setIsReturning] = useState(false);
 
   useEffect(() => {
     const id = getIdentity();
@@ -99,16 +102,54 @@ export default function ImmunizationPage() {
     window.addEventListener("offline", () => setIsOnline(false));
   }, [router]);
 
-  function start() {
-    setChild(null); setInput(""); setError(""); setStatuses([]);
-    setLoggedRecords([]); setSelectedVaccine(null); setLoggedToday([]);
+  // ── Start flows ────────────────────────────────────────────────────────────
+
+  function goToSearch() {
+    setChild(null); setInput(""); setChildNameInput(""); setError("");
+    setStatuses([]); setLoggedRecords([]);
+    setSelectedVaccine(null); setLoggedToday([]);
+    setIsReturning(false);
+    setStep("search");
+  }
+
+  function handleSelectBeneficiary(profile: BeneficiaryProfile) {
+    // If we have DOB from previous record, jump straight to grid
+    if (profile.dob) {
+      const ageMonths = dobToMonths(profile.dob);
+      const childInfo: ChildInfo = { name: profile.patientName, dob: profile.dob, ageMonths };
+      setChild(childInfo);
+      const vaccineStatuses = getImmunizationStatus(profile.dob, []);
+      setStatuses(vaccineStatuses);
+      setLoggedRecords([]); setLoggedToday([]);
+      setIsReturning(true);
+      setStep("grid");
+    } else {
+      // Has name but no DOB — go to DOB entry only
+      setChildNameInput(profile.patientName);
+      setChild({ name: profile.patientName, dob: '', ageMonths: 0 });
+      setIsReturning(true);
+      setInput(""); setError("");
+      setStep("child_dob");
+    }
+  }
+
+  function handleNewFull() {
+    setChild(null); setInput(""); setChildNameInput(""); setError("");
+    setStatuses([]); setLoggedRecords([]);
+    setSelectedVaccine(null); setLoggedToday([]);
+    setIsReturning(false);
     setStep("child_name");
   }
 
+  function handleWalkIn() {
+    // For immunization walk-in = new child, name only, then DOB needed for schedule
+    handleNewFull();
+  }
+
   function submitName() {
-    if (!input.trim()) { setError("Masukkan nama anak."); return; }
-    setChild(prev => ({ ...prev!, name: input.trim(), dob: '', ageMonths: 0 }));
-    setInput(""); setError(""); setStep("child_dob");
+    if (!childNameInput.trim()) { setError("Masukkan nama anak."); return; }
+    setChild(prev => ({ ...prev!, name: childNameInput.trim(), dob: '', ageMonths: 0 }));
+    setChildNameInput(""); setError(""); setStep("child_dob");
   }
 
   function submitDob() {
@@ -122,9 +163,6 @@ export default function ImmunizationPage() {
 
     const childInfo: ChildInfo = { name: child?.name ?? '', dob, ageMonths };
     setChild(childInfo);
-
-    // Compute schedule with no existing records (fresh start)
-    // In a full implementation, we'd fetch from IndexedDB/server
     const vaccineStatuses = getImmunizationStatus(dob, loggedRecords);
     setStatuses(vaccineStatuses);
     setInput(""); setError(""); setStep("grid");
@@ -146,21 +184,18 @@ export default function ImmunizationPage() {
       administered_date: today,
     };
 
-    // Add to local records and recompute
     const updatedRecords = [...loggedRecords, newRecord];
     setLoggedRecords(updatedRecords);
     setLoggedToday(prev => [...prev, `${selectedVaccine.code}_${selectedVaccine.doseNumber}`]);
 
-    // Recompute statuses
     const vaccineStatuses = getImmunizationStatus(child.dob, updatedRecords);
     setStatuses(vaccineStatuses);
 
-    // Save as a case for sync
     const queued: QueuedCase = {
       localId: generateLocalId(),
       profileId: identity.profileId,
       ngoId: identity.ngoId,
-      moduleType: 'child' as any, // TODO: add 'immunization'
+      moduleType: 'child' as any,
       patientName: child.name,
       ageMonths: child.ageMonths,
       ageDays: null,
@@ -197,7 +232,6 @@ export default function ImmunizationPage() {
 
   const summary = statuses.length > 0 ? getImmunizationSummary(statuses) : null;
 
-  // Group statuses by category
   const grouped: Record<string, VaccineStatus[]> = {};
   statuses.forEach(v => {
     if (!grouped[v.category]) grouped[v.category] = [];
@@ -206,40 +240,83 @@ export default function ImmunizationPage() {
 
   return (
     <div style={{ minHeight: "100vh", background: C.bg, display: "flex", flexDirection: "column" }}>
+
+      {/* Header */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "16px 20px", borderBottom: `1px solid ${C.border}`, background: "rgba(0,0,0,0.2)" }}>
-        <button onClick={() => router.push("/triage")} style={{ background: "none", border: "none", color: C.dim, fontSize: 22, cursor: "pointer", padding: 0 }}>←</button>
+        <button
+          onClick={() => step === "home" ? router.push("/triage") : setStep("home")}
+          style={{ background: "none", border: "none", color: C.dim, fontSize: 22, cursor: "pointer", padding: 0 }}
+        >←</button>
         <div>
           <div style={{ color: C.accent, fontWeight: 800, fontSize: 15 }}>💉 Imunisasi & Suplemen</div>
           <div style={{ color: C.dim, fontSize: 12 }}>{identity.name}</div>
         </div>
       </div>
 
-      {!isOnline && <div style={{ background: "rgba(255,209,102,0.15)", borderBottom: `1px solid ${C.yellow}`, padding: "8px 20px", color: C.yellow, fontSize: 13, textAlign: "center" }}>📵 Mode offline — pencatatan tetap berjalan</div>}
+      {!isOnline && (
+        <div style={{ background: "rgba(255,209,102,0.15)", borderBottom: `1px solid ${C.yellow}`, padding: "8px 20px", color: C.yellow, fontSize: 13, textAlign: "center" }}>
+          📵 Mode offline — pencatatan tetap berjalan
+        </div>
+      )}
 
       <div style={{ flex: 1, maxWidth: 480, width: "100%", margin: "0 auto" }}>
 
+        {/* ── HOME ── */}
         {step === "home" && (
           <div style={{ padding: "40px 20px", textAlign: "center" }}>
             <div style={{ fontSize: 40, marginBottom: 8 }}>💉</div>
             <h1 style={{ color: C.accent, fontSize: 22, fontWeight: 800, margin: 0 }}>Imunisasi & Suplemen</h1>
             <p style={{ color: C.dim, fontSize: 14, marginTop: 8 }}>Jadwal Kemenkes 2023 + Vitamin A + Obat Cacing</p>
-            <button onClick={start} style={{ width: "100%", padding: 18, borderRadius: 14, background: C.accent, color: C.white, fontSize: 18, fontWeight: 800, border: "none", cursor: "pointer", marginTop: 24 }}>
+            <button onClick={goToSearch} style={{
+              width: "100%", padding: 18, borderRadius: 14,
+              background: C.accent, color: C.white,
+              fontSize: 18, fontWeight: 800, border: "none", cursor: "pointer", marginTop: 24,
+            }}>
               ➕ Cek Imunisasi Anak
             </button>
           </div>
         )}
 
+        {/* ── SEARCH ── */}
+        {step === "search" && (
+          <BeneficiarySearch
+            moduleType="immunization"
+            moduleEmoji="💉"
+            moduleTitle="Imunisasi & Suplemen"
+            onSelect={handleSelectBeneficiary}
+            onNew={handleNewFull}
+            onWalkIn={handleWalkIn}
+          />
+        )}
+
+        {/* Returning banner */}
+        {isReturning && step === "grid" && (
+          <div style={{
+            margin: "12px 20px 0", padding: "10px 14px", borderRadius: 10,
+            background: "rgba(2,195,154,0.08)", border: `1px solid rgba(2,195,154,0.3)`,
+            color: C.accent, fontSize: 13,
+          }}>
+            ✓ Data {child?.name} dimuat — jadwal imunisasi diperbarui
+          </div>
+        )}
+
+        {/* ── CHILD NAME ── */}
         {step === "child_name" && (
           <div style={{ padding: "32px 20px" }}>
             <p style={{ color: C.dimmer, fontSize: 12, marginBottom: 8 }}>Imunisasi</p>
             <h2 style={{ color: C.white, fontSize: 20, fontWeight: 700, marginBottom: 24 }}>Nama anak?</h2>
-            <input type="text" placeholder="Contoh: Ahmad" value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === "Enter" && submitName()} autoFocus
-              style={{ width: "100%", padding: "14px 16px", borderRadius: 10, background: "rgba(255,255,255,0.08)", border: `1.5px solid ${C.border}`, color: C.white, fontSize: 18, outline: "none", boxSizing: "border-box", marginBottom: 16 }} />
-            <button onClick={submitName} style={{ width: "100%", padding: 14, borderRadius: 10, background: input.trim() ? C.accent : `${C.accent}40`, color: C.white, fontSize: 16, fontWeight: 700, border: "none", cursor: input.trim() ? "pointer" : "not-allowed" }}>Lanjut →</button>
+            <input
+              type="text" placeholder="Contoh: Ahmad" value={childNameInput}
+              onChange={e => setChildNameInput(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && submitName()} autoFocus
+              style={{ width: "100%", padding: "14px 16px", borderRadius: 10, background: "rgba(255,255,255,0.08)", border: `1.5px solid ${C.border}`, color: C.white, fontSize: 18, outline: "none", boxSizing: "border-box", marginBottom: 16 }}
+            />
+            <button onClick={submitName} style={{ width: "100%", padding: 14, borderRadius: 10, background: childNameInput.trim() ? C.accent : `${C.accent}40`, color: C.white, fontSize: 16, fontWeight: 700, border: "none", cursor: childNameInput.trim() ? "pointer" : "not-allowed" }}>Lanjut →</button>
             {error && <p style={{ color: C.red, fontSize: 13, marginTop: 8 }}>{error}</p>}
           </div>
         )}
 
+        {/* ── CHILD DOB ── */}
         {step === "child_dob" && (
           <div style={{ padding: "32px 20px" }}>
             <p style={{ color: C.dimmer, fontSize: 12, marginBottom: 8 }}>Imunisasi — {child?.name}</p>
@@ -253,9 +330,9 @@ export default function ImmunizationPage() {
           </div>
         )}
 
+        {/* ── GRID ── */}
         {step === "grid" && child && (
           <div style={{ padding: "20px" }}>
-            {/* Child header */}
             <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, marginBottom: 16 }}>
               <div style={{ color: C.white, fontSize: 18, fontWeight: 700 }}>{child.name}</div>
               <div style={{ color: C.dim, fontSize: 13, marginTop: 4 }}>
@@ -263,7 +340,6 @@ export default function ImmunizationPage() {
               </div>
             </div>
 
-            {/* Summary badges */}
             {summary && (
               <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
                 <Badge label={`✅ ${summary.done} sudah`} color={C.green} />
@@ -279,7 +355,6 @@ export default function ImmunizationPage() {
               </div>
             )}
 
-            {/* Vaccine grid by category */}
             {(['imunisasi', 'vitamin_a', 'obat_cacing'] as const).map(cat => {
               const items = grouped[cat];
               if (!items || items.length === 0) return null;
@@ -288,7 +363,7 @@ export default function ImmunizationPage() {
                   <p style={{ color: C.dimmer, fontSize: 12, fontWeight: 600, marginBottom: 8, letterSpacing: 1 }}>
                     {categoryLabel(cat)}
                   </p>
-                  {items.map((v, i) => (
+                  {items.map(v => (
                     <button
                       key={`${v.code}_${v.doseNumber}`}
                       onClick={() => tapVaccine(v)}
@@ -312,8 +387,7 @@ export default function ImmunizationPage() {
                         <div style={{ color: C.dim, fontSize: 12, marginTop: 2 }}>
                           {v.status === 'done'
                             ? `Diberikan: ${v.administeredDate}`
-                            : `Jadwal: usia ${v.dueAgeMonths} bulan`
-                          }
+                            : `Jadwal: usia ${v.dueAgeMonths} bulan`}
                         </div>
                       </div>
                       <div style={{ color: statusColor(v.status), fontSize: 11, fontWeight: 700 }}>
@@ -325,7 +399,7 @@ export default function ImmunizationPage() {
               );
             })}
 
-            <button onClick={start} style={{ width: "100%", padding: 14, borderRadius: 12, background: C.accent, color: C.white, fontSize: 15, fontWeight: 700, border: "none", cursor: "pointer", marginTop: 12, marginBottom: 12 }}>
+            <button onClick={goToSearch} style={{ width: "100%", padding: 14, borderRadius: 12, background: C.accent, color: C.white, fontSize: 15, fontWeight: 700, border: "none", cursor: "pointer", marginTop: 12, marginBottom: 12 }}>
               ➕ Cek Anak Lain
             </button>
             <button onClick={() => router.push("/triage")} style={{ width: "100%", padding: 14, borderRadius: 12, background: C.card, color: C.dim, fontSize: 15, fontWeight: 600, border: `1px solid ${C.border}`, cursor: "pointer" }}>
@@ -334,35 +408,22 @@ export default function ImmunizationPage() {
           </div>
         )}
 
+        {/* ── CONFIRM ── */}
         {step === "confirm" && selectedVaccine && child && (
           <div style={{ padding: "32px 20px" }}>
             <h2 style={{ color: C.white, fontSize: 20, fontWeight: 700, marginBottom: 8 }}>Konfirmasi Pencatatan</h2>
             <p style={{ color: C.dim, fontSize: 14, marginBottom: 24 }}>Apakah imunisasi/suplemen ini sudah diberikan hari ini?</p>
-
             <div style={{ background: C.card, border: `1px solid ${C.accent}`, borderRadius: 12, padding: 20, marginBottom: 24 }}>
-              <div style={{ color: C.accent, fontSize: 16, fontWeight: 700, marginBottom: 8 }}>
-                {selectedVaccine.label}
-              </div>
-              <div style={{ color: C.white, fontSize: 14 }}>
-                Anak: {child.name}
-              </div>
+              <div style={{ color: C.accent, fontSize: 16, fontWeight: 700, marginBottom: 8 }}>{selectedVaccine.label}</div>
+              <div style={{ color: C.white, fontSize: 14 }}>Anak: {child.name}</div>
               <div style={{ color: C.dim, fontSize: 13, marginTop: 4 }}>
                 Tanggal: {new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
               </div>
             </div>
-
-            <button onClick={confirmLog} style={{
-              width: "100%", padding: 16, borderRadius: 12,
-              background: C.accent, color: C.white, fontSize: 16, fontWeight: 700,
-              border: "none", cursor: "pointer", marginBottom: 12,
-            }}>
+            <button onClick={confirmLog} style={{ width: "100%", padding: 16, borderRadius: 12, background: C.accent, color: C.white, fontSize: 16, fontWeight: 700, border: "none", cursor: "pointer", marginBottom: 12 }}>
               ✅ Ya, Catat Hari Ini
             </button>
-            <button onClick={() => { setSelectedVaccine(null); setStep("grid"); }} style={{
-              width: "100%", padding: 14, borderRadius: 12,
-              background: "transparent", color: C.dim, fontSize: 15, fontWeight: 600,
-              border: `1px solid ${C.border}`, cursor: "pointer",
-            }}>
+            <button onClick={() => { setSelectedVaccine(null); setStep("grid"); }} style={{ width: "100%", padding: 14, borderRadius: 12, background: "transparent", color: C.dim, fontSize: 15, fontWeight: 600, border: `1px solid ${C.border}`, cursor: "pointer" }}>
               ← Batal
             </button>
           </div>
@@ -375,9 +436,6 @@ export default function ImmunizationPage() {
 
 function Badge({ label, color }: { label: string; color: string }) {
   return (
-    <span style={{
-      background: `${color}15`, color, border: `1px solid ${color}30`,
-      borderRadius: 8, padding: "4px 10px", fontSize: 12, fontWeight: 700,
-    }}>{label}</span>
+    <span style={{ background: `${color}15`, color, border: `1px solid ${color}30`, borderRadius: 8, padding: "4px 10px", fontSize: 12, fontWeight: 700 }}>{label}</span>
   );
 }
