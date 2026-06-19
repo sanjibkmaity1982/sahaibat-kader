@@ -3,6 +3,7 @@ export interface KaderIdentity {
   name: string;
   ngoId: string;
   phone: string;
+  facilityId: number | null;
   savedAt: string;
 }
 
