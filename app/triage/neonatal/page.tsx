@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { getIdentity } from "@/lib/auth";
+import { getIdentity, type KaderIdentity } from "@/lib/auth";
 import { runNeonatalTriage, type NeonatalInput } from "@/lib/neonatalEngine";
 import { saveCase, getPendingCount, generateLocalId, type QueuedCase } from "@/lib/offlineStore";
 import { syncPendingCases } from "@/lib/syncClient";
@@ -29,7 +29,7 @@ const emptyInput: NeonatalInput = {
 
 export default function NeonatalTriagePage() {
   const router = useRouter();
-  const [identity, setIdentity] = useState<{ name: string; profileId: string; ngoId: string } | null>(null);
+  const [identity, setIdentity] = useState<KaderIdentity | null>(null);
   const [step, setStep] = useState<Step>("home");
   const [babyName, setBabyName] = useState("");
   const [input, setInput] = useState<NeonatalInput>(emptyInput);
