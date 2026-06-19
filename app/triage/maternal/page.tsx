@@ -6,6 +6,7 @@ import { getIdentity } from "@/lib/auth";
 import { runMaternalTriage, type MaternalInput } from "@/lib/maternalEngine";
 import { saveCase, getPendingCount, generateLocalId, type QueuedCase } from "@/lib/offlineStore";
 import { syncPendingCases } from "@/lib/syncClient";
+import BeneficiarySearch, { type BeneficiaryProfile } from "@/components/BeneficiarySearch";
 
 const C = {
   bg: "#0D1F1C", card: "rgba(255,255,255,0.05)",
@@ -16,10 +17,10 @@ const C = {
 };
 
 type Step =
-  | "name" | "gestasi" | "lila" | "perdarahan" | "nyeri_perut"
+  | "home" | "search" | "name" | "gestasi" | "lila" | "perdarahan" | "nyeri_perut"
   | "sakit_kepala" | "demam" | "muntah" | "gerak_bayi"
   | "sesak" | "bengkak" | "keputihan"
-| "ttd" | "ttd_side"
+  | "ttd" | "ttd_side"
   | "td"
   | "ispa_batuk" | "ispa_sesak" | "ispa_mata" | "ispa_paparan"
   | "result";
@@ -38,7 +39,7 @@ const emptyInput: MaternalInput = {
 export default function MaternalTriagePage() {
   const router = useRouter();
   const [identity, setIdentity] = useState<{ name: string; profileId: string; ngoId: string } | null>(null);
-  const [step, setStep] = useState<Step>("name");
+  const [step, setStep] = useState<Step>("home");
   const [patientName, setPatientName] = useState("");
   const [input, setInput] = useState<MaternalInput>(emptyInput);
   const [textInput, setTextInput] = useState("");
@@ -46,6 +47,8 @@ export default function MaternalTriagePage() {
   const [result, setResult] = useState<QueuedCase | null>(null);
   const [pendingCount, setPendingCount] = useState(0);
   const [isOnline, setIsOnline] = useState(true);
+  const [isReturning, setIsReturning] = useState(false);
+  const [isWalkIn, setIsWalkIn] = useState(false);
 
   useEffect(() => {
     const id = getIdentity();
@@ -55,6 +58,36 @@ export default function MaternalTriagePage() {
     window.addEventListener("online", () => setIsOnline(true));
     window.addEventListener("offline", () => setIsOnline(false));
   }, [router]);
+
+  // ── Start flows ────────────────────────────────────────────────────────────
+
+  function goToSearch() {
+    setPatientName(""); setInput(emptyInput);
+    setTextInput(""); setError(""); setResult(null);
+    setIsReturning(false); setIsWalkIn(false);
+    setStep("search");
+  }
+
+  function handleSelectBeneficiary(profile: BeneficiaryProfile) {
+    setPatientName(profile.patientName);
+    setIsReturning(true); setIsWalkIn(false);
+    setTextInput(""); setError("");
+    setStep("gestasi"); // maternal always needs fresh gestasi
+  }
+
+  function handleNewFull() {
+    setPatientName(""); setInput(emptyInput);
+    setIsReturning(false); setIsWalkIn(false);
+    setTextInput(""); setError("");
+    setStep("name");
+  }
+
+  function handleWalkIn() {
+    setPatientName(""); setInput(emptyInput);
+    setIsReturning(false); setIsWalkIn(true);
+    setTextInput(""); setError("");
+    setStep("name");
+  }
 
   function yesNo(field: keyof MaternalInput, value: boolean, nextStep: Step) {
     setInput(prev => ({ ...prev, [field]: value }));
@@ -74,14 +107,12 @@ export default function MaternalTriagePage() {
       ageMonths: null,
       ageDays: null,
       gender: 'female',
-      payload: {
-        ...finalInput,
-        kekStatus: engineResult.kekStatus,
-      },
+      payload: { ...finalInput, kekStatus: engineResult.kekStatus },
       riskLevel: engineResult.riskLevel,
       reportText: engineResult.reportText,
       referNow: engineResult.referNow,
       followUpDays: engineResult.followUpDays,
+      profileIncomplete: isWalkIn,
       createdAt: new Date().toISOString(),
       syncStatus: 'pending',
     };
@@ -97,8 +128,9 @@ export default function MaternalTriagePage() {
   }
 
   function reset() {
-    setStep("name"); setPatientName(""); setInput(emptyInput);
+    setStep("home"); setPatientName(""); setInput(emptyInput);
     setTextInput(""); setError(""); setResult(null);
+    setIsReturning(false); setIsWalkIn(false);
   }
 
   if (!identity) return null;
@@ -112,10 +144,10 @@ export default function MaternalTriagePage() {
         padding: "16px 20px", borderBottom: `1px solid ${C.border}`,
         background: "rgba(0,0,0,0.2)",
       }}>
-        <button onClick={() => router.push("/triage")} style={{
-          background: "none", border: "none", color: C.dim,
-          fontSize: 22, cursor: "pointer", padding: 0,
-        }}>←</button>
+        <button
+          onClick={() => step === "home" ? router.push("/triage") : setStep("home")}
+          style={{ background: "none", border: "none", color: C.dim, fontSize: 22, cursor: "pointer", padding: 0 }}
+        >←</button>
         <div>
           <div style={{ color: C.accent, fontWeight: 800, fontSize: 15 }}>🤰 Ibu Hamil</div>
           <div style={{ color: C.dim, fontSize: 12 }}>Triase antenatal — KMS Permenkes 2/2020</div>
@@ -132,6 +164,58 @@ export default function MaternalTriagePage() {
       )}
 
       <div style={{ flex: 1, maxWidth: 480, width: "100%", margin: "0 auto" }}>
+
+        {/* ── HOME ── */}
+        {step === "home" && (
+          <div style={{ padding: "40px 20px" }}>
+            <div style={{ textAlign: "center", marginBottom: 32 }}>
+              <div style={{ fontSize: 40, marginBottom: 8 }}>🤰</div>
+              <h1 style={{ color: C.accent, fontSize: 22, fontWeight: 800, margin: 0 }}>Ibu Hamil</h1>
+              <p style={{ color: C.dim, fontSize: 14, marginTop: 8 }}>Triase antenatal — tanda bahaya kehamilan</p>
+            </div>
+            <button onClick={goToSearch} style={{
+              width: "100%", padding: 18, borderRadius: 14,
+              background: C.accent, color: C.white,
+              fontSize: 18, fontWeight: 800, border: "none", cursor: "pointer",
+            }}>
+              ➕ Mulai Triase Ibu Hamil
+            </button>
+          </div>
+        )}
+
+        {/* ── SEARCH ── */}
+        {step === "search" && (
+          <BeneficiarySearch
+            moduleType="maternal"
+            moduleEmoji="🤰"
+            moduleTitle="Ibu Hamil"
+            onSelect={handleSelectBeneficiary}
+            onNew={handleNewFull}
+            onWalkIn={handleWalkIn}
+          />
+        )}
+
+        {/* Returning banner */}
+        {isReturning && !["home","search","result"].includes(step) && (
+          <div style={{
+            margin: "12px 20px 0", padding: "10px 14px", borderRadius: 10,
+            background: "rgba(233,30,140,0.08)", border: `1px solid rgba(233,30,140,0.3)`,
+            color: C.accent, fontSize: 13,
+          }}>
+            ✓ Data {patientName} dimuat — masukkan data kunjungan ini
+          </div>
+        )}
+
+        {/* Walk-in banner */}
+        {isWalkIn && !["home","search","result"].includes(step) && (
+          <div style={{
+            margin: "12px 20px 0", padding: "10px 14px", borderRadius: 10,
+            background: "rgba(255,209,102,0.08)", border: `1px solid rgba(255,209,102,0.3)`,
+            color: C.yellow, fontSize: 13,
+          }}>
+            ⚡ Triage cepat — lengkapi data lengkap setelah sesi selesai
+          </div>
+        )}
 
         {/* ── NAME ── */}
         {step === "name" && (
@@ -173,11 +257,11 @@ export default function MaternalTriagePage() {
           </QCard>
         )}
 
-        {/* ── LILA (Maternal MUAC) ── */}
+        {/* ── LILA ── */}
         {step === "lila" && (
           <QCard
             title="Lingkar Lengan Atas / LILA ibu (cm)?"
-            hint="Ukur di lengan kiri atas, tengah antara bahu dan siku. Di bawah 23,5 cm = KEK (Kurang Energi Kronik). Ketik SKIP jika tidak ada pita LILA."
+            hint="Ukur di lengan kiri atas, tengah antara bahu dan siku. Di bawah 23,5 cm = KEK. Ketik SKIP jika tidak ada pita LILA."
             accent={C.accent}
           >
             <TInput
@@ -188,39 +272,27 @@ export default function MaternalTriagePage() {
                 const val = textInput.trim().toUpperCase();
                 if (val === "SKIP" || val === "" || val === "S") {
                   setInput(prev => ({ ...prev, lila_cm: null }));
-                  setTextInput(""); setError("");
-                  setStep("perdarahan");
-                  return;
+                  setTextInput(""); setError(""); setStep("perdarahan"); return;
                 }
                 const num = parseFloat(val.replace(",", "."));
                 if (isNaN(num) || num < 15 || num > 40) {
-                  setError("Masukkan LILA yang valid (15–40 cm) atau ketik SKIP.");
-                  return;
+                  setError("Masukkan LILA yang valid (15–40 cm) atau ketik SKIP."); return;
                 }
                 setInput(prev => ({ ...prev, lila_cm: num }));
-                setTextInput(""); setError("");
-                setStep("perdarahan");
+                setTextInput(""); setError(""); setStep("perdarahan");
               }}
               accent={C.accent}
             />
             {textInput && !isNaN(parseFloat(textInput.replace(",", "."))) && (
               <div style={{
                 marginTop: 8, padding: 10, borderRadius: 8, fontSize: 13, textAlign: "center",
-                background: parseFloat(textInput.replace(",", ".")) < 23.5
-                  ? "rgba(255,107,107,0.15)" : "rgba(2,195,154,0.15)",
-                color: parseFloat(textInput.replace(",", ".")) < 23.5
-                  ? C.red : C.green,
+                background: parseFloat(textInput.replace(",", ".")) < 23.5 ? "rgba(255,107,107,0.15)" : "rgba(2,195,154,0.15)",
+                color: parseFloat(textInput.replace(",", ".")) < 23.5 ? C.red : C.green,
               }}>
-                {parseFloat(textInput.replace(",", ".")) < 23.5
-                  ? "⚠️ Di bawah 23,5 cm — risiko KEK"
-                  : "✓ Normal (≥ 23,5 cm)"}
+                {parseFloat(textInput.replace(",", ".")) < 23.5 ? "⚠️ Di bawah 23,5 cm — risiko KEK" : "✓ Normal (≥ 23,5 cm)"}
               </div>
             )}
-            <button onClick={() => {
-              setInput(prev => ({ ...prev, lila_cm: null }));
-              setTextInput(""); setError("");
-              setStep("perdarahan");
-            }} style={{
+            <button onClick={() => { setInput(prev => ({ ...prev, lila_cm: null })); setTextInput(""); setError(""); setStep("perdarahan"); }} style={{
               width: "100%", padding: 12, borderRadius: 10, marginTop: 12,
               background: "transparent", border: `1px solid ${C.border}`,
               color: C.dim, fontSize: 14, cursor: "pointer",
@@ -233,11 +305,7 @@ export default function MaternalTriagePage() {
         {step === "perdarahan" && (
           <QCard title="Ada perdarahan dari jalan lahir?" accent={C.accent}>
             <YNButtons
-              onYes={() => {
-                const updated = { ...input, perdarahan: true };
-                setInput(updated);
-                finish(updated);
-              }}
+              onYes={() => { const updated = { ...input, perdarahan: true }; setInput(updated); finish(updated); }}
               onNo={() => yesNo("perdarahan", false, "nyeri_perut")}
               accent={C.accent}
             />
@@ -281,112 +349,62 @@ export default function MaternalTriagePage() {
         {step === "muntah" && (
           <QCard title="Mual/muntah sangat hebat — tidak bisa makan/minum sama sekali?" accent={C.accent}>
             <YNButtons
-              onYes={() => {
-                setInput(prev => ({ ...prev, muntah_hebat: true }));
-                setStep((input.gestasi_weeks ?? 0) >= 20 ? "gerak_bayi" : "sesak");
-              }}
-              onNo={() => {
-                setInput(prev => ({ ...prev, muntah_hebat: false }));
-                setStep((input.gestasi_weeks ?? 0) >= 20 ? "gerak_bayi" : "sesak");
-              }}
+              onYes={() => { setInput(prev => ({ ...prev, muntah_hebat: true })); setStep((input.gestasi_weeks ?? 0) >= 20 ? "gerak_bayi" : "sesak"); }}
+              onNo={() => { setInput(prev => ({ ...prev, muntah_hebat: false })); setStep((input.gestasi_weeks ?? 0) >= 20 ? "gerak_bayi" : "sesak"); }}
               accent={C.accent}
             />
           </QCard>
         )}
 
-        {/* ── GERAK BAYI (≥20 weeks only) ── */}
+        {/* ── GERAK BAYI ── */}
         {step === "gerak_bayi" && (
-          <QCard
-            title={`Usia ${input.gestasi_weeks} minggu — gerakan bayi normal hari ini?`}
-            hint="Normal: minimal 10 kali dalam 12 jam"
-            accent={C.accent}
-          >
-            <ChoiceBtn label="✅ Normal" sub="Bayi bergerak cukup" onClick={() => {
-              setInput(prev => ({ ...prev, gerak_bayi_kurang: false }));
-              setStep("sesak");
-            }} accent={C.accent} />
-            <ChoiceBtn label="⚠️ Berkurang" sub="Kurang dari 10 kali" onClick={() => {
-              setInput(prev => ({ ...prev, gerak_bayi_kurang: true }));
-              setStep("sesak");
-            }} accent={C.accent} />
-            <ChoiceBtn label="🚨 Tidak terasa sama sekali" sub="Tidak ada gerakan" onClick={() => {
-              const updated = { ...input, gerak_bayi_kurang: true };
-              setInput(updated);
-              finish(updated);
-            }} accent={C.accent} />
+          <QCard title={`Usia ${input.gestasi_weeks} minggu — gerakan bayi normal hari ini?`} hint="Normal: minimal 10 kali dalam 12 jam" accent={C.accent}>
+            <ChoiceBtn label="✅ Normal" sub="Bayi bergerak cukup" onClick={() => { setInput(prev => ({ ...prev, gerak_bayi_kurang: false })); setStep("sesak"); }} accent={C.accent} />
+            <ChoiceBtn label="⚠️ Berkurang" sub="Kurang dari 10 kali" onClick={() => { setInput(prev => ({ ...prev, gerak_bayi_kurang: true })); setStep("sesak"); }} accent={C.accent} />
+            <ChoiceBtn label="🚨 Tidak terasa sama sekali" sub="Tidak ada gerakan" onClick={() => { const updated = { ...input, gerak_bayi_kurang: true }; setInput(updated); finish(updated); }} accent={C.accent} />
           </QCard>
         )}
 
         {/* ── SESAK ── */}
         {step === "sesak" && (
           <QCard title="Sesak napas ATAU jantung berdebar-debar?" accent={C.accent}>
-            <YNButtons
-              onYes={() => yesNo("sesak_jantung", true, "bengkak")}
-              onNo={() => yesNo("sesak_jantung", false, "bengkak")}
-              accent={C.accent}
-            />
+            <YNButtons onYes={() => yesNo("sesak_jantung", true, "bengkak")} onNo={() => yesNo("sesak_jantung", false, "bengkak")} accent={C.accent} />
           </QCard>
         )}
 
         {/* ── BENGKAK ── */}
         {step === "bengkak" && (
           <QCard title="Bengkak mendadak di tangan, wajah, atau kaki?" accent={C.accent}>
-            <YNButtons
-              onYes={() => yesNo("bengkak_mendadak", true, "keputihan")}
-              onNo={() => yesNo("bengkak_mendadak", false, "keputihan")}
-              accent={C.accent}
-            />
+            <YNButtons onYes={() => yesNo("bengkak_mendadak", true, "keputihan")} onNo={() => yesNo("bengkak_mendadak", false, "keputihan")} accent={C.accent} />
           </QCard>
         )}
 
         {/* ── KEPUTIHAN ── */}
         {step === "keputihan" && (
           <QCard title="Keputihan berbau, gatal berlebihan, atau keluar cairan tidak biasa?" accent={C.accent}>
-            <YNButtons
-              onYes={() => yesNo("keputihan_abnormal", true, "ttd")}
-              onNo={() => yesNo("keputihan_abnormal", false, "ttd")}
-              accent={C.accent}
-            />
+            <YNButtons onYes={() => yesNo("keputihan_abnormal", true, "ttd")} onNo={() => yesNo("keputihan_abnormal", false, "ttd")} accent={C.accent} />
           </QCard>
         )}
 
-        {/* ── TTD ADHERENCE ── */}
+        {/* ── TTD ── */}
         {step === "ttd" && (
           <QCard title="Apakah ibu rutin minum Tablet Tambah Darah (TTD)?" hint="TTD wajib diminum setiap hari selama hamil — mencegah anemia" accent={C.accent}>
-            <ChoiceBtn label="💊 Ya, setiap hari" sub="Rutin minum TTD" onClick={() => {
-              setInput(prev => ({ ...prev, ttd_adherence: '1' as const }));
-              setStep("td");
-            }} accent={C.accent} />
-            <ChoiceBtn label="⚠️ Kadang-kadang" sub="Tidak setiap hari" onClick={() => {
-              setInput(prev => ({ ...prev, ttd_adherence: '2' as const }));
-              setStep("ttd_side");
-            }} accent={C.accent} />
-            <ChoiceBtn label="❌ Tidak minum" sub="Tidak pernah atau sudah berhenti" onClick={() => {
-              setInput(prev => ({ ...prev, ttd_adherence: '3' as const }));
-              setStep("ttd_side");
-            }} accent={C.accent} />
+            <ChoiceBtn label="💊 Ya, setiap hari" sub="Rutin minum TTD" onClick={() => { setInput(prev => ({ ...prev, ttd_adherence: '1' as const })); setStep("td"); }} accent={C.accent} />
+            <ChoiceBtn label="⚠️ Kadang-kadang" sub="Tidak setiap hari" onClick={() => { setInput(prev => ({ ...prev, ttd_adherence: '2' as const })); setStep("ttd_side"); }} accent={C.accent} />
+            <ChoiceBtn label="❌ Tidak minum" sub="Tidak pernah atau sudah berhenti" onClick={() => { setInput(prev => ({ ...prev, ttd_adherence: '3' as const })); setStep("ttd_side"); }} accent={C.accent} />
           </QCard>
         )}
 
-        {/* ── TTD SIDE EFFECTS (only if not rutin) ── */}
+        {/* ── TTD SIDE EFFECTS ── */}
         {step === "ttd_side" && (
           <QCard title="Apakah ada keluhan setelah minum TTD?" hint="Efek samping TTD bisa diatasi — bukan alasan berhenti minum" accent={C.accent}>
-            <ChoiceBtn label="🤢 Mual / tidak enak perut" sub="Keluhan paling umum" onClick={() => {
-              setInput(prev => ({ ...prev, ttd_side_effects: '1' as const }));
-              setStep("td");
-            }} accent={C.accent} />
-            <ChoiceBtn label="😣 Sembelit / susah BAB" sub="Efek samping zat besi" onClick={() => {
-              setInput(prev => ({ ...prev, ttd_side_effects: '2' as const }));
-              setStep("td");
-            }} accent={C.accent} />
-            <ChoiceBtn label="✅ Tidak ada keluhan" sub="Tidak ada efek samping" onClick={() => {
-              setInput(prev => ({ ...prev, ttd_side_effects: '3' as const }));
-              setStep("td");
-            }} accent={C.accent} />
+            <ChoiceBtn label="🤢 Mual / tidak enak perut" sub="Keluhan paling umum" onClick={() => { setInput(prev => ({ ...prev, ttd_side_effects: '1' as const })); setStep("td"); }} accent={C.accent} />
+            <ChoiceBtn label="😣 Sembelit / susah BAB" sub="Efek samping zat besi" onClick={() => { setInput(prev => ({ ...prev, ttd_side_effects: '2' as const })); setStep("td"); }} accent={C.accent} />
+            <ChoiceBtn label="✅ Tidak ada keluhan" sub="Tidak ada efek samping" onClick={() => { setInput(prev => ({ ...prev, ttd_side_effects: '3' as const })); setStep("td"); }} accent={C.accent} />
           </QCard>
         )}
 
-      {/* ── TD ── */}
+        {/* ── TD ── */}
         {step === "td" && (
           <QCard title="Tekanan darah ibu?" hint="Ketik contoh: 120/80 — atau SKIP jika tidak ada alat" accent={C.accent}>
             <TInput
@@ -400,13 +418,9 @@ export default function MaternalTriagePage() {
                   updated = { ...updated, td_sys: null, td_dia: null };
                 } else {
                   const match = val.match(/(\d{2,3})\s*\/\s*(\d{2,3})/);
-                  if (match) {
-                    updated = { ...updated, td_sys: parseInt(match[1]), td_dia: parseInt(match[2]) };
-                  }
+                  if (match) { updated = { ...updated, td_sys: parseInt(match[1]), td_dia: parseInt(match[2]) }; }
                 }
-                setInput(updated);
-                setTextInput("");
-                setStep("ispa_batuk");
+                setInput(updated); setTextInput(""); setStep("ispa_batuk");
               }}
               accent={C.accent}
             />
@@ -418,9 +432,9 @@ export default function MaternalTriagePage() {
           </QCard>
         )}
 
-        {/* ── ISPA SCREENING ── */}
+        {/* ── ISPA ── */}
         {step === "ispa_batuk" && (
-          <QCard title="Apakah ibu batuk?" hint="Batuk kering (tanpa dahak) atau batuk berdahak?" accent={C.accent}>
+          <QCard title="Apakah ibu batuk?" hint="Batuk kering atau batuk berdahak?" accent={C.accent}>
             <ChoiceBtn label="😷 Ya, batuk kering" onClick={() => { setInput(prev => ({ ...prev, ispa_batuk: 'kering' as const })); setStep("ispa_sesak"); }} accent={C.accent} />
             <ChoiceBtn label="🤧 Ya, batuk berdahak" onClick={() => { setInput(prev => ({ ...prev, ispa_batuk: 'berdahak' as const })); setStep("ispa_sesak"); }} accent={C.accent} />
             <ChoiceBtn label="✅ Tidak batuk" onClick={() => { setInput(prev => ({ ...prev, ispa_batuk: 'tidak' as const })); setStep("ispa_sesak"); }} accent={C.accent} />
@@ -428,7 +442,7 @@ export default function MaternalTriagePage() {
         )}
 
         {step === "ispa_sesak" && (
-          <QCard title="Apakah sesak napas?" hint="Napas terasa berat, sulit bernapas dalam (selain dari jantung berdebar)" accent={C.accent}>
+          <QCard title="Apakah sesak napas?" hint="Napas terasa berat, sulit bernapas dalam" accent={C.accent}>
             <YNButtons onYes={() => { setInput(prev => ({ ...prev, ispa_sesak: true })); setStep("ispa_mata"); }} onNo={() => { setInput(prev => ({ ...prev, ispa_sesak: false })); setStep("ispa_mata"); }} accent={C.accent} />
           </QCard>
         )}
@@ -448,7 +462,11 @@ export default function MaternalTriagePage() {
 
         {/* ── RESULT ── */}
         {step === "result" && result && (
-          <ResultScreen result={result} onNext={reset} onHome={() => router.push("/triage")} />
+          <ResultScreen
+            result={result}
+            onNext={reset}
+            onHome={() => router.push("/triage")}
+          />
         )}
 
       </div>
@@ -456,48 +474,25 @@ export default function MaternalTriagePage() {
   );
 }
 
-// ── Shared sub-components ─────────────────────────────────────────────────────
+// ── Sub-components ────────────────────────────────────────────────────────────
 
-function QCard({ title, hint, children, accent }: {
-  title: string; hint?: string; children: React.ReactNode; accent: string;
-}) {
+function QCard({ title, hint, children, accent }: { title: string; hint?: string; children: React.ReactNode; accent: string; }) {
   return (
     <div style={{ padding: "32px 20px" }}>
       <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12, marginBottom: 8 }}>Triase Ibu Hamil</p>
-      <h2 style={{ color: "#FFFFFF", fontSize: 20, fontWeight: 700, marginBottom: hint ? 8 : 24, lineHeight: 1.4 }}>
-        {title}
-      </h2>
+      <h2 style={{ color: "#FFFFFF", fontSize: 20, fontWeight: 700, marginBottom: hint ? 8 : 24, lineHeight: 1.4 }}>{title}</h2>
       {hint && <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 13, marginBottom: 24 }}>{hint}</p>}
       {children}
     </div>
   );
 }
 
-function TInput({ placeholder, value, onChange, onSubmit, type = "text", accent }: {
-  placeholder: string; value: string; onChange: (v: string) => void;
-  onSubmit: () => void; type?: string; accent: string;
-}) {
+function TInput({ placeholder, value, onChange, onSubmit, type = "text", accent }: { placeholder: string; value: string; onChange: (v: string) => void; onSubmit: () => void; type?: string; accent: string; }) {
   return (
     <div>
-      <input
-        type={type} placeholder={placeholder} value={value}
-        onChange={e => onChange(e.target.value)}
-        onKeyDown={e => e.key === "Enter" && onSubmit()}
-        autoFocus
-        style={{
-          width: "100%", padding: "14px 16px", borderRadius: 10,
-          background: "rgba(255,255,255,0.08)",
-          border: `1.5px solid ${accent}40`,
-          color: "#FFFFFF", fontSize: 18, outline: "none",
-          boxSizing: "border-box", marginBottom: 16,
-        }}
-      />
-      <button onClick={onSubmit} style={{
-        width: "100%", padding: 14, borderRadius: 10,
-        background: value.trim() ? accent : `${accent}40`,
-        color: "#FFFFFF", fontSize: 16, fontWeight: 700,
-        border: "none", cursor: value.trim() ? "pointer" : "not-allowed",
-      }}>Lanjut →</button>
+      <input type={type} placeholder={placeholder} value={value} onChange={e => onChange(e.target.value)} onKeyDown={e => e.key === "Enter" && onSubmit()} autoFocus
+        style={{ width: "100%", padding: "14px 16px", borderRadius: 10, background: "rgba(255,255,255,0.08)", border: `1.5px solid ${accent}40`, color: "#FFFFFF", fontSize: 18, outline: "none", boxSizing: "border-box", marginBottom: 16 }} />
+      <button onClick={onSubmit} style={{ width: "100%", padding: 14, borderRadius: 10, background: value.trim() ? accent : `${accent}40`, color: "#FFFFFF", fontSize: 16, fontWeight: 700, border: "none", cursor: value.trim() ? "pointer" : "not-allowed" }}>Lanjut →</button>
     </div>
   );
 }
@@ -505,30 +500,15 @@ function TInput({ placeholder, value, onChange, onSubmit, type = "text", accent 
 function YNButtons({ onYes, onNo, accent }: { onYes: () => void; onNo: () => void; accent: string; }) {
   return (
     <div style={{ display: "flex", gap: 12 }}>
-      <button onClick={onYes} style={{
-        flex: 1, padding: 16, borderRadius: 12,
-        background: "rgba(255,107,107,0.15)", border: "1.5px solid rgba(255,107,107,0.5)",
-        color: "#FF6B6B", fontSize: 18, fontWeight: 700, cursor: "pointer",
-      }}>Ya</button>
-      <button onClick={onNo} style={{
-        flex: 1, padding: 16, borderRadius: 12,
-        background: "rgba(2,195,154,0.1)", border: `1.5px solid ${accent}40`,
-        color: "#02C39A", fontSize: 18, fontWeight: 700, cursor: "pointer",
-      }}>Tidak</button>
+      <button onClick={onYes} style={{ flex: 1, padding: 16, borderRadius: 12, background: "rgba(255,107,107,0.15)", border: "1.5px solid rgba(255,107,107,0.5)", color: "#FF6B6B", fontSize: 18, fontWeight: 700, cursor: "pointer" }}>Ya</button>
+      <button onClick={onNo} style={{ flex: 1, padding: 16, borderRadius: 12, background: "rgba(2,195,154,0.1)", border: `1.5px solid ${accent}40`, color: "#02C39A", fontSize: 18, fontWeight: 700, cursor: "pointer" }}>Tidak</button>
     </div>
   );
 }
 
-function ChoiceBtn({ label, sub, onClick, accent }: {
-  label: string; sub?: string; onClick: () => void; accent: string;
-}) {
+function ChoiceBtn({ label, sub, onClick, accent }: { label: string; sub?: string; onClick: () => void; accent: string; }) {
   return (
-    <button onClick={onClick} style={{
-      width: "100%", padding: "14px 16px", borderRadius: 12,
-      background: "rgba(255,255,255,0.05)", border: `1.5px solid ${accent}30`,
-      color: "#FFFFFF", fontSize: 15, fontWeight: 600,
-      cursor: "pointer", marginBottom: 10, textAlign: "left",
-    }}>
+    <button onClick={onClick} style={{ width: "100%", padding: "14px 16px", borderRadius: 12, background: "rgba(255,255,255,0.05)", border: `1.5px solid ${accent}30`, color: "#FFFFFF", fontSize: 15, fontWeight: 600, cursor: "pointer", marginBottom: 10, textAlign: "left" }}>
       {label}
       {sub && <div style={{ color: "rgba(255,255,255,0.5)", fontSize: 12, marginTop: 2 }}>{sub}</div>}
     </button>
@@ -539,62 +519,30 @@ function Err({ msg }: { msg: string }) {
   return <p style={{ color: "#FF6B6B", fontSize: 13, marginTop: 8 }}>{msg}</p>;
 }
 
-function ResultScreen({ result, onNext, onHome }: {
-  result: QueuedCase; onNext: () => void; onHome: () => void;
-}) {
-  const riskColor = result.riskLevel === "HIGH" ? "#FF6B6B"
-    : result.riskLevel === "MEDIUM" ? "#FFD166" : "#02C39A";
-
-  const riskLabel = result.riskLevel === "HIGH" ? "🔴 RISIKO TINGGI / DARURAT"
-    : result.riskLevel === "MEDIUM" ? "🟡 PERLU PERHATIAN"
-    : "🟢 KONDISI STABIL";
-
+function ResultScreen({ result, onNext, onHome }: { result: QueuedCase; onNext: () => void; onHome: () => void; }) {
+  const riskColor = result.riskLevel === "HIGH" ? "#FF6B6B" : result.riskLevel === "MEDIUM" ? "#FFD166" : "#02C39A";
+  const riskLabel = result.riskLevel === "HIGH" ? "🔴 RISIKO TINGGI / DARURAT" : result.riskLevel === "MEDIUM" ? "🟡 PERLU PERHATIAN" : "🟢 KONDISI STABIL";
   return (
     <div style={{ padding: "24px 20px" }}>
-      <div style={{
-        background: `${riskColor}20`, border: `2px solid ${riskColor}`,
-        borderRadius: 14, padding: "16px 20px", marginBottom: 20, textAlign: "center",
-      }}>
+      <div style={{ background: `${riskColor}20`, border: `2px solid ${riskColor}`, borderRadius: 14, padding: "16px 20px", marginBottom: 20, textAlign: "center" }}>
         <div style={{ color: riskColor, fontSize: 17, fontWeight: 800 }}>{riskLabel}</div>
-        {result.referNow && (
-          <div style={{ color: "#FF6B6B", fontSize: 13, marginTop: 6 }}>
-            Segera ke Puskesmas/RS
-          </div>
-        )}
+        {result.referNow && <div style={{ color: "#FF6B6B", fontSize: 13, marginTop: 6 }}>Segera ke Puskesmas/RS</div>}
       </div>
 
-      <div style={{
-        background: "rgba(255,255,255,0.05)", border: "1px solid rgba(233,30,140,0.25)",
-        borderRadius: 12, padding: 16, marginBottom: 20,
-      }}>
-        <pre style={{
-          color: "#FFFFFF", fontSize: 13, lineHeight: 1.7,
-          whiteSpace: "pre-wrap", margin: 0, fontFamily: "inherit",
-        }}>
-          {result.reportText}
-        </pre>
-      </div>
+      {result.profileIncomplete && (
+        <div style={{ background: "rgba(255,209,102,0.1)", border: `1px solid #FFD166`, borderRadius: 10, padding: 12, marginBottom: 16, fontSize: 13, color: "#FFD166" }}>
+          ⚠️ <strong>Profil belum lengkap</strong> — mohon lengkapi data {result.patientName} setelah sesi selesai
+        </div>
+      )}
 
-      <div style={{
-        background: "rgba(255,209,102,0.1)", border: "1px solid #FFD166",
-        borderRadius: 10, padding: 12, marginBottom: 20,
-        fontSize: 13, color: "#FFD166",
-      }}>
+      <div style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(233,30,140,0.25)", borderRadius: 12, padding: 16, marginBottom: 20 }}>
+        <pre style={{ color: "#FFFFFF", fontSize: 13, lineHeight: 1.7, whiteSpace: "pre-wrap", margin: 0, fontFamily: "inherit" }}>{result.reportText}</pre>
+      </div>
+      <div style={{ background: "rgba(255,209,102,0.1)", border: "1px solid #FFD166", borderRadius: 10, padding: 12, marginBottom: 20, fontSize: 13, color: "#FFD166" }}>
         ⏳ Tersimpan lokal — akan sinkron ke server saat ada sinyal
       </div>
-
-      <button onClick={onNext} style={{
-        width: "100%", padding: 14, borderRadius: 12,
-        background: "#E91E8C", color: "#FFFFFF",
-        fontSize: 15, fontWeight: 700, border: "none", cursor: "pointer", marginBottom: 10,
-      }}>➕ Triase Ibu Berikutnya</button>
-
-      <button onClick={onHome} style={{
-        width: "100%", padding: 13, borderRadius: 12,
-        background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.5)",
-        fontSize: 14, fontWeight: 600,
-        border: "1px solid rgba(2,195,154,0.25)", cursor: "pointer",
-      }}>← Kembali ke Beranda</button>
+      <button onClick={onNext} style={{ width: "100%", padding: 14, borderRadius: 12, background: "#E91E8C", color: "#FFFFFF", fontSize: 15, fontWeight: 700, border: "none", cursor: "pointer", marginBottom: 10 }}>➕ Triase Ibu Berikutnya</button>
+      <button onClick={onHome} style={{ width: "100%", padding: 13, borderRadius: 12, background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.5)", fontSize: 14, fontWeight: 600, border: "1px solid rgba(2,195,154,0.25)", cursor: "pointer" }}>← Kembali ke Beranda</button>
     </div>
   );
 }
