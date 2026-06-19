@@ -33,6 +33,7 @@ interface Props {
   moduleType: "child" | "maternal" | "postpartum" | "neonatal" | "immunization" | "remaja";
   moduleEmoji: string;
   moduleTitle: string;
+  facilityId?: number | null;
   onSelect: (profile: BeneficiaryProfile) => void;
   onNew: () => void;
   onWalkIn: () => void;
@@ -42,6 +43,7 @@ export default function BeneficiarySearch({
   moduleType,
   moduleEmoji,
   moduleTitle,
+  facilityId,
   onSelect,
   onNew,
   onWalkIn,
@@ -51,11 +53,15 @@ export default function BeneficiarySearch({
   const [searched, setSearched] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  async function handleSearch() {
+async function handleSearch() {
     if (!query.trim()) return;
     setLoading(true);
     setSearched(false);
-    const found = await searchBeneficiaries(query, moduleType as any);
+    const found = await searchBeneficiaries(
+      query,
+      moduleType as any,
+      facilityId ?? undefined
+    );
     setResults(found);
     setSearched(true);
     setLoading(false);
