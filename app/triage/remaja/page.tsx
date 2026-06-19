@@ -5,7 +5,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { getIdentity } from "@/lib/auth";
+import { getIdentity, type KaderIdentity } from "@/lib/auth";
 import { runRemajaTriage, type RemajaInput } from "@/lib/remajaEngine";
 import { saveCase, getPendingCount, generateLocalId, type QueuedCase } from "@/lib/offlineStore";
 import { syncPendingCases } from "@/lib/syncClient";
@@ -68,7 +68,7 @@ function riskColor(level: string) {
 
 export default function RemajaTriagePage() {
   const router = useRouter();
-  const [identity, setIdentity] = useState<{ name: string; profileId: string; ngoId: string } | null>(null);
+  const [identity, setIdentity] = useState<KaderIdentity | null>(null);
   const [step, setStep] = useState<Step>("home");
   const [triage, setTriage] = useState<TriageState>(emptyState);
   const [input, setInput] = useState("");
