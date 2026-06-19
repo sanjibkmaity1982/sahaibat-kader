@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { getIdentity } from "@/lib/auth";
+import { getIdentity, type KaderIdentity } from "@/lib/auth";
 import { runPostpartumTriage, type PostpartumInput } from "@/lib/postpartumEngine";
 import { saveCase, getPendingCount, generateLocalId, type QueuedCase } from "@/lib/offlineStore";
 import { syncPendingCases } from "@/lib/syncClient";
@@ -33,7 +33,7 @@ const emptyInput: PostpartumInput = {
 
 export default function PostpartumTriagePage() {
   const router = useRouter();
-  const [identity, setIdentity] = useState<{ name: string; profileId: string; ngoId: string } | null>(null);
+  const [identity, setIdentity] = useState<KaderIdentity | null>(null);
   const [step, setStep] = useState<Step>("home");
   const [patientName, setPatientName] = useState("");
   const [input, setInput] = useState<PostpartumInput>(emptyInput);
