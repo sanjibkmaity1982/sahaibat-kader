@@ -1,6 +1,6 @@
 // lib/offlineStore.ts
 // IndexedDB queue for offline triage cases — all 4 modules.
-// DB_VERSION 4: removed cached_cases store (case detail feature removed).
+// DB_VERSION 5: added beneficiary_directory store for shared register sync.
 
 export type ModuleType = 'child' | 'maternal' | 'postpartum' | 'neonatal';
 
@@ -44,6 +44,22 @@ export interface QueuedCase {
   profileIncomplete?: boolean;
 }
 
+// ── Beneficiary directory — shared register imported from backend ─────────────
+export interface BeneficiaryRecord {
+  localId: string;        // e.g. 'bdir_aplasi_13'
+  facilityId: number;
+  ngoId: string;
+  patientName: string;
+  nik?: string | null;
+  dob?: string | null;
+  ageMonths?: number | null;
+  gender?: string;
+  moduleType: string;
+  motherName?: string | null;
+  source: 'register_import';
+  syncedAt: string;
+}
+
 // ── Legacy support — keep childName as alias for patientName ─────────────────
 export function getPatientName(c: QueuedCase): string {
   return c.patientName || (c as any).childName || 'Tidak diketahui';
@@ -51,8 +67,9 @@ export function getPatientName(c: QueuedCase): string {
 
 // ── IndexedDB ─────────────────────────────────────────────────────────────────
 const DB_NAME = 'sahaibat_kader';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 const STORE_NAME = 'queued_cases';
+const DIR_STORE = 'beneficiary_directory';
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -79,11 +96,20 @@ function openDB(): Promise<IDBDatabase> {
       if (db.objectStoreNames.contains('cached_cases')) {
         db.deleteObjectStore('cached_cases');
       }
+
+      // v4 → v5: add beneficiary_directory store
+      if (!db.objectStoreNames.contains(DIR_STORE)) {
+        const dirStore = db.createObjectStore(DIR_STORE, { keyPath: 'localId' });
+        dirStore.createIndex('facilityId', 'facilityId', { unique: false });
+        dirStore.createIndex('patientName', 'patientName', { unique: false });
+      }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
 }
+
+// ── Queued cases functions ────────────────────────────────────────────────────
 
 export async function saveCase(c: QueuedCase): Promise<void> {
   const db = await openDB();
@@ -200,29 +226,119 @@ export function moduleLabel(moduleType: ModuleType): string {
   }
 }
 
-// ── Search beneficiaries by name (for monthly auto-populate) ─────────────────
+// ── Beneficiary directory functions ──────────────────────────────────────────
+
+export async function saveBeneficiaries(records: BeneficiaryRecord[]): Promise<void> {
+  if (records.length === 0) return;
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DIR_STORE, 'readwrite');
+    const store = tx.objectStore(DIR_STORE);
+    for (const r of records) {
+      store.put(r);
+    }
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function getBeneficiaryDirectory(facilityId: number): Promise<BeneficiaryRecord[]> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DIR_STORE, 'readonly');
+    const index = tx.objectStore(DIR_STORE).index('facilityId');
+    const req = index.getAll(facilityId);
+    req.onsuccess = () => resolve(req.result as BeneficiaryRecord[]);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function clearBeneficiaryDirectory(): Promise<void> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DIR_STORE, 'readwrite');
+    tx.objectStore(DIR_STORE).clear();
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function getBeneficiaryDirectoryCount(): Promise<number> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DIR_STORE, 'readonly');
+    const req = tx.objectStore(DIR_STORE).count();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+// ── Search beneficiaries by name (checks local cases + directory) ─────────────
 export async function searchBeneficiaries(
   query: string,
-  moduleType?: ModuleType
+  moduleType?: ModuleType,
+  facilityId?: number
 ): Promise<QueuedCase[]> {
   if (!query.trim()) return [];
-  const all = await getAllCases();
   const q = query.toLowerCase().trim();
 
+  // Search local queued cases first
+  const all = await getAllCases();
   const matches = all.filter(c => {
     const nameMatch = c.patientName?.toLowerCase().includes(q);
     const moduleMatch = moduleType ? c.moduleType === moduleType : true;
     return nameMatch && moduleMatch;
   });
 
-  // Deduplicate — keep most recent case per unique NIK or name
+  // Deduplicate local cases — newest first
   const seen = new Map<string, QueuedCase>();
   for (const c of matches) {
     const key = c.nik && c.nik.length === 16
       ? c.nik
       : c.patientName.toLowerCase().trim();
     if (!seen.has(key)) {
-      seen.set(key, c); // getAllCases() already sorted newest-first
+      seen.set(key, c);
+    }
+  }
+
+  // Also search beneficiary directory if facilityId provided
+  if (facilityId) {
+    try {
+      const directory = await getBeneficiaryDirectory(facilityId);
+      const dirMatches = directory.filter(r => {
+        const nameMatch = r.patientName?.toLowerCase().includes(q);
+        const moduleMatch = moduleType ? r.moduleType === moduleType : true;
+        return nameMatch && moduleMatch;
+      });
+
+      for (const r of dirMatches) {
+        const key = r.nik && r.nik.length === 16
+          ? r.nik
+          : r.patientName.toLowerCase().trim();
+        // Only add if not already found in local cases
+        if (!seen.has(key)) {
+          seen.set(key, {
+            localId: r.localId,
+            profileId: '',
+            ngoId: r.ngoId,
+            moduleType: (r.moduleType as ModuleType) ?? 'child',
+            patientName: r.patientName,
+            nik: r.nik ?? undefined,
+            dob: r.dob ?? null,
+            ageMonths: r.ageMonths ?? null,
+            ageDays: null,
+            gender: (r.gender as 'male' | 'female' | 'unknown') ?? 'unknown',
+            riskLevel: 'LOW',
+            reportText: '',
+            referNow: false,
+            followUpDays: 30,
+            createdAt: r.syncedAt,
+            syncStatus: 'synced',
+          });
+        }
+      }
+    } catch {
+      // Directory search failure is non-blocking
     }
   }
 
