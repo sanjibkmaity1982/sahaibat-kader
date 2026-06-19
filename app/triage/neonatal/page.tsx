@@ -178,6 +178,7 @@ export default function NeonatalTriagePage() {
             moduleType="neonatal"
             moduleEmoji="🍼"
             moduleTitle="Bayi Baru Lahir"
+            facilityId={identity?.facilityId}
             onSelect={handleSelectBeneficiary}
             onNew={handleNewFull}
             onWalkIn={handleWalkIn}
