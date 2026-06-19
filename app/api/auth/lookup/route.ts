@@ -17,7 +17,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Normalise to +62 format
     let normalised = phone.trim().replace(/\s+/g, "");
     if (normalised.startsWith("0")) normalised = "+62" + normalised.slice(1);
     if (normalised.startsWith("62") && !normalised.startsWith("+62"))
@@ -26,7 +25,7 @@ export async function POST(req: NextRequest) {
 
     const { data, error } = await supabase
       .from("sahai_profiles")
-      .select("id, full_name, ngo_id, role, is_active, whatsapp_number")
+      .select("id, full_name, ngo_id, role, is_active, whatsapp_number, facility_id")
       .eq("whatsapp_number", normalised)
       .eq("is_active", true)
       .maybeSingle();
@@ -48,6 +47,7 @@ export async function POST(req: NextRequest) {
       profileId: String(data.id),
       name: data.full_name ?? "Kader",
       ngoId: data.ngo_id ?? null,
+      facilityId: data.facility_id ?? null,
       phone: normalised,
     });
   } catch (e) {
