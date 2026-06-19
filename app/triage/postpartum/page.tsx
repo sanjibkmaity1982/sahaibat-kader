@@ -182,6 +182,7 @@ export default function PostpartumTriagePage() {
             moduleType="postpartum"
             moduleEmoji="🌸"
             moduleTitle="Ibu Nifas"
+            facilityId={identity?.facilityId}
             onSelect={handleSelectBeneficiary}
             onNew={handleNewFull}
             onWalkIn={handleWalkIn}
