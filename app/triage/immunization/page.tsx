@@ -6,7 +6,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { getIdentity } from "@/lib/auth";
+import { getIdentity, type KaderIdentity } from "@/lib/auth";
 import {
   getImmunizationStatus,
   getImmunizationSummary,
@@ -80,7 +80,7 @@ function categoryLabel(c: string) {
 
 export default function ImmunizationPage() {
   const router = useRouter();
-  const [identity, setIdentity] = useState<{ name: string; profileId: string; ngoId: string } | null>(null);
+  const [identity, setIdentity] = useState<KaderIdentity | null>(null);
   const [step, setStep] = useState<Step>("home");
   const [child, setChild] = useState<ChildInfo | null>(null);
   const [input, setInput] = useState("");
