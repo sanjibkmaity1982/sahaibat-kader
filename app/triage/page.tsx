@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { getIdentity, clearIdentity } from "@/lib/auth";
+import { getIdentity, clearIdentity, type KaderIdentity } from "@/lib/auth";
 import {
   getPendingCount,
   getAllCases,
@@ -40,7 +41,7 @@ type View = "home" | "history";
 
 export default function TriagePage() {
   const router = useRouter();
-  const [identity, setIdentity] = useState<{ name: string; profileId: string; ngoId: string; facilityId?: number } | null>(null);
+  const [identity, setIdentity] = useState<KaderIdentity | null>(null);
   const [pendingCount, setPendingCount] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
