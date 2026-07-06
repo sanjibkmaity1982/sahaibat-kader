@@ -282,13 +282,16 @@ export async function searchBeneficiaries(
   if (!query.trim()) return [];
   const q = query.toLowerCase().trim();
 
-  // Search local queued cases first
+// Search local queued cases first.
+  // NOTE: search is intentionally module-agnostic — a kader searching by name
+  // wants to find the beneficiary regardless of which module recorded them.
+  // The calling module decides what to do with the selected person, not
+  // whether they are findable. `moduleType` is kept in the signature for
+  // backward compatibility but no longer filters results.
   const all = await getAllCases();
-  const matches = all.filter(c => {
-    const nameMatch = c.patientName?.toLowerCase().includes(q);
-    const moduleMatch = moduleType ? c.moduleType === moduleType : true;
-    return nameMatch && moduleMatch;
-  });
+  const matches = all.filter(c =>
+    c.patientName?.toLowerCase().includes(q)
+  );
 
   // Deduplicate local cases — newest first
   const seen = new Map<string, QueuedCase>();
@@ -305,11 +308,9 @@ export async function searchBeneficiaries(
   if (facilityId) {
     try {
       const directory = await getBeneficiaryDirectory(facilityId);
-      const dirMatches = directory.filter(r => {
-        const nameMatch = r.patientName?.toLowerCase().includes(q);
-        const moduleMatch = moduleType ? r.moduleType === moduleType : true;
-        return nameMatch && moduleMatch;
-      });
+     const dirMatches = directory.filter(r =>
+        r.patientName?.toLowerCase().includes(q)
+      );
 
       for (const r of dirMatches) {
         const key = r.nik && r.nik.length === 16
