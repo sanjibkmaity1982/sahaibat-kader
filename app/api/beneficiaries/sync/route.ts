@@ -1,4 +1,4 @@
-// app/api/beneficiaries/route.ts (sahaibat-kader)
+// app/api/sync/beneficiaries/route.ts (sahaibat-kader)
 // Proxy — injects PWA_SYNC_SECRET server-side and forwards the beneficiary
 // directory request to the main app. Mirrors /api/sync's security pattern
 // so the secret is never exposed to the browser.
