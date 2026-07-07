@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { getIdentity, clearIdentity, type KaderIdentity } from "@/lib/auth";
+
+
 import {
   getPendingCount,
   getAllCases,
@@ -54,20 +56,31 @@ export default function TriagePage() {
   }, []);
 
   // ── Run sync then always refresh count regardless of result ───────────────
-  const runSync = useCallback(async () => {
+const runSync = useCallback(async () => {
     if (isSyncing) return;
     setIsSyncing(true);
     try {
       const { syncPendingCases } = await import("@/lib/syncClient");
-      await syncPendingCases();
+      const result = await syncPendingCases();
+
+      // After uploading cases, re-pull the directory so newly-entered
+      // beneficiaries become searchable on every device at this facility.
+      if (result.synced > 0 && identity && (identity as any).facilityId && identity.ngoId) {
+        // Force a fresh pull past the 24h cache by clearing its timestamp,
+        // since we KNOW new data just landed.
+        localStorage.removeItem(`bdir_sync_${(identity as any).facilityId}`);
+        await syncBeneficiaryDirectory(
+          (identity as any).facilityId,
+          identity.ngoId
+        ).catch(() => {});
+      }
     } catch {
       // Silently ignore sync errors — will retry on next online event
     } finally {
-      // ALWAYS clear syncing state and refresh count, even on error
       setIsSyncing(false);
       await refreshPending();
     }
-  }, [isSyncing, refreshPending]);
+  }, [isSyncing, refreshPending, identity]);
 
   useEffect(() => {
 const id = getIdentity();
